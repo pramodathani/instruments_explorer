@@ -1,0 +1,78 @@
+:root {
+  color-scheme: dark;
+  --font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, 'DejaVu Sans Mono', monospace;
+  --font-size-body: 14px;
+  --font-size-small: 12px;
+  --font-size-tiny: 11px;
+  --header-height: 56px;
+  --content-width: 1500px;
+  --chat-width: 420px;
+  --radius: 10px;
+  --radius-small: 6px;
+  --z-background: 0;
+  --z-content: 1;
+  --z-header: 1000;
+  --z-chat: 1100;
+  --z-toast: 1300;
+
+  --page: #1e2129;
+  --page-glow: rgba(255, 138, 101, 0.08);
+  --surface: rgba(38, 42, 52, 0.82);
+  --surface-solid: #262a34;
+  --surface-hover: #2e3340;
+  --raised: #2a2522;
+  --data-panel: #1f2633;
+  --border: rgba(154, 160, 166, 0.22);
+  --border-strong: rgba(154, 160, 166, 0.45);
+  --gridline: rgba(154, 160, 166, 0.14);
+  --ink: #e8eaed;
+  --ink-muted: #9aa0a6;
+  --ink-faint: #6b7178;
+  --accent: #ff8a65;
+  --accent-strong: #ff7043;
+  --accent-ink: #1e2129;
+  --accent-tint: rgba(255, 138, 101, 0.14);
+  --second: #64b5f6;
+  --second-tint: rgba(100, 181, 246, 0.14);
+  --up: #5bb974;
+  --up-tint: rgba(91, 185, 116, 0.15);
+  --down: #e25f5b;
+  --down-tint: rgba(226, 95, 91, 0.15);
+  --warning: #fab219;
+  --warning-tint: rgba(250, 178, 25, 0.12);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-lifted: 0 22px 50px rgba(0, 0, 0, 0.5);
+  --backdrop-blur: blur(10px);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --page: #ffffff;
+  --page-glow: rgba(255, 87, 34, 0.06);
+  --surface: rgba(245, 245, 245, 0.88);
+  --surface-solid: #f5f5f5;
+  --surface-hover: #ececec;
+  --raised: #fff7f2;
+  --data-panel: #eef3fb;
+  --border: rgba(95, 99, 104, 0.2);
+  --border-strong: rgba(95, 99, 104, 0.45);
+  --gridline: rgba(95, 99, 104, 0.12);
+  --ink: #202124;
+  --ink-muted: #6b7280;
+  --ink-faint: #9aa0a6;
+  --accent: #ff5722;
+  --accent-strong: #e64a19;
+  --accent-ink: #ffffff;
+  --accent-tint: rgba(255, 87, 34, 0.1);
+  --second: #1565c0;
+  --second-tint: rgba(21, 101, 192, 0.1);
+  --up: #2e7d32;
+  --up-tint: rgba(46, 125, 50, 0.1);
+  --down: #c62828;
+  --down-tint: rgba(198, 40, 40, 0.1);
+  --warning: #b7791f;
+  --warning-tint: rgba(250, 178, 25, 0.14);
+  --shadow: 0 8px 24px rgba(32, 33, 36, 0.12);
+  --shadow-lifted: 0 18px 40px rgba(32, 33, 36, 0.2);
+}

@@ -1,0 +1,174 @@
+.ambient-background {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-background);
+  pointer-events: none;
+  background: radial-gradient(ellipse at 70% 10%, var(--page-glow), transparent 60%);
+}
+
+.ambient-background canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: var(--header-height);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--page) 78%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.navigation {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  height: 100%;
+  overflow-x: auto;
+}
+
+.navigation a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.navigation a:hover {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.navigation a.active {
+  color: var(--accent);
+}
+
+.navigation a.active::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shell {
+  position: relative;
+  z-index: var(--z-content);
+  transition: padding-right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.shell-with-chat {
+  padding-right: var(--chat-width);
+}
+
+.content {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 24px;
+  perspective: 1600px;
+}
+
+.page-transition {
+  transform-origin: 50% 0;
+  animation: page-enter 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, -120px) rotateX(8deg);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-title {
+  margin-bottom: 4px;
+  font-size: 26px;
+  font-weight: 300;
+  letter-spacing: 0.2px;
+}
+
+.page-subtitle {
+  margin-bottom: 20px;
+  color: var(--ink-muted);
+}
+
+:root[data-motion='off'] .page-transition {
+  animation: none;
+}
+
+:root[data-motion='reduced'] .page-transition {
+  animation-name: page-fade;
+  animation-duration: 0.25s;
+}
+
+@keyframes page-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .shell-with-chat {
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .header {
+    gap: 12px;
+    padding: 0 12px;
+  }
+
+  .brand-name {
+    display: none;
+  }
+
+  .content {
+    padding: 16px;
+  }
+}
