@@ -1,0 +1,17 @@
+[Unit]
+Description=instruments_explorer, a web app for exploring the instruments in unified_broker_interface
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/instruments_explorer
+ExecStart=%h/Projects/instruments_explorer/bin/instruments-explorer
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=instruments-explorer
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
