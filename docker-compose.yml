@@ -1,0 +1,49 @@
+name: instruments_explorer
+
+services:
+  mongodb:
+    image: mongo:8.0.4
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "${INSTRUMENTS_EXPLORER_MONGODB_USERNAME:-instruments_explorer}"
+      MONGO_INITDB_ROOT_PASSWORD: "${INSTRUMENTS_EXPLORER_MONGODB_PASSWORD}"
+    ports:
+      - "127.0.0.1:${INSTRUMENTS_EXPLORER_MONGODB_PORT:-3003}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval 'db.runCommand({ping:1})' --quiet"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - network
+
+  chromadb:
+    image: chromadb/chroma:1.5.9
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "127.0.0.1:${INSTRUMENTS_EXPLORER_CHROMADB_PORT:-3004}:8000"
+    volumes:
+      - chromadb_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8000 && printf \"GET /api/v2/heartbeat HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q 200 <&3'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - network
+
+volumes:
+  mongodb_data:
+    name: instruments_explorer_mongodb_volume
+  chromadb_data:
+    name: instruments_explorer_chromadb_volume
+
+networks:
+  network:
+    name: instruments_explorer_network
+    driver: bridge
