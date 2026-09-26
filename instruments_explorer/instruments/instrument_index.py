@@ -325,6 +325,146 @@ class InstrumentIndex:
         result['is_index'] = bool(result['is_index'])
         return result
 
+    def derivative_underlyings(
+        self,
+        text: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Lists the underlyings that have futures or options, by exchange.
+
+        Args:
+            text (str): Typed text; underlyings whose name starts with it come first, and an empty text lists the busiest underlyings.
+            limit (int): The largest number of underlyings to return.
+
+        Returns:
+            list[dict[str, Any]]: One dictionary per exchange and underlying with "exchange", "underlying_symbol", "asset_class", "is_index", "futures", "options", "expiries" and "next_expiry": exact matches first, then equity indices, other equities and everything else, each by option count.
+        """
+        key = ''.join(text.lower().split())
+        sql = """
+            SELECT
+                exchange,
+                underlying_symbol,
+                MAX(asset_class),
+                MAX(is_index),
+                SUM(shape = 'future'),
+                SUM(shape = 'option'),
+                COUNT(DISTINCT expiry_date),
+                MIN(expiry_date)
+            FROM instruments
+            WHERE shape IN ('future', 'option')
+                AND underlying_symbol IS NOT NULL
+                AND (:key = '' OR substr(root_key, 1, length(:key)) = :key)
+            GROUP BY exchange, underlying_symbol
+            ORDER BY
+                root_key = :key DESC,
+                MAX(asset_class = 'equity') DESC,
+                MAX(is_index) DESC,
+                SUM(shape = 'option') DESC,
+                exchange_rank,
+                underlying_symbol
+            LIMIT :limit
+        """
+        parameters = {
+            'key': key,
+            'limit': limit,
+        }
+        with self._lock:
+            rows = self._connection.execute(sql, parameters).fetchall()
+        underlyings = []
+        for row in rows:
+            underlyings.append(
+                {
+                    'exchange': row[0],
+                    'underlying_symbol': row[1],
+                    'asset_class': row[2],
+                    'is_index': bool(row[3]),
+                    'futures': row[4],
+                    'options': row[5],
+                    'expiries': row[6],
+                    'next_expiry': row[7],
+                }
+            )
+        return underlyings
+
+    def derivative_contracts(
+        self,
+        exchange: str,
+        underlying_symbol: str,
+    ) -> list[dict[str, Any]]:
+        """Lists every future and option of one underlying on one exchange.
+
+        Args:
+            exchange (str): The exchange, such as "nse".
+            underlying_symbol (str): The underlying, such as "NIFTY".
+
+        Returns:
+            list[dict[str, Any]]: The contracts keyed by the result column names, by expiry, then futures before options, then strike and option type.
+        """
+        columns = ', '.join(_RESULT_COLUMNS)
+        sql = f"""
+            SELECT {columns}
+            FROM instruments
+            WHERE exchange = ?
+                AND underlying_symbol = ?
+                AND shape IN ('future', 'option')
+            ORDER BY expiry_date, shape_rank, strike_price, option_type
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                sql,
+                (
+                    exchange,
+                    underlying_symbol,
+                ),
+            ).fetchall()
+        contracts = []
+        for row in rows:
+            contract = dict(zip(_RESULT_COLUMNS, row, strict=True))
+            contract['is_index'] = bool(contract['is_index'])
+            contracts.append(contract)
+        return contracts
+
+    def underlying_security(
+        self,
+        exchange: str,
+        underlying_symbol: str,
+    ) -> dict[str, Any] | None:
+        """Finds the cash instrument an underlying's derivatives are written on, such as the NIFTY index or the RELIANCE share.
+
+        Args:
+            exchange (str): The exchange of the derivatives.
+            underlying_symbol (str): The underlying's symbol.
+
+        Returns:
+            dict[str, Any] | None: The security keyed by the result column names, preferring equities and indices over other cash segments, or None when the exchange lists none.
+        """
+        columns = ', '.join(_RESULT_COLUMNS)
+        sql = f"""
+            SELECT {columns}
+            FROM instruments
+            WHERE exchange = ?
+                AND symbol = ?
+                AND shape = 'security'
+                AND bare_segment != 'uncategorised'
+            ORDER BY
+                bare_segment IN ('equities', 'equity_indices') DESC,
+                bare_segment
+            LIMIT 1
+        """
+        with self._lock:
+            row = self._connection.execute(
+                sql,
+                (
+                    exchange,
+                    underlying_symbol,
+                ),
+            ).fetchone()
+        if row is None:
+            return None
+        security = dict(zip(_RESULT_COLUMNS, row, strict=True))
+        security['is_index'] = bool(security['is_index'])
+        return security
+
     def close(self) -> None:
         """Closes the connection."""
         with self._lock:

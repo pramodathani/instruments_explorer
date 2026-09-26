@@ -660,3 +660,36 @@ class PricesMaker:
             ],
             'candles': candles,
         }
+
+
+class FakeSnapshotReader:
+    """A stand-in for QuoteSnapshotReader serving prepared quotes.
+
+    Attributes:
+        quotes: Unified quotes by instrument id.
+    """
+
+    def __init__(self, quotes: dict[str, Any] | None = None):
+        """Creates the reader.
+
+        Args:
+            quotes (dict[str, Any] | None): Unified quotes by instrument id, or None for none.
+        """
+        if quotes is None:
+            quotes = {}
+        self.quotes = quotes
+
+    async def read(self, instrument_ids: list[str]) -> dict[str, Any]:
+        """Returns the prepared quotes of the instruments asked for.
+
+        Args:
+            instrument_ids (list[str]): The instruments.
+
+        Returns:
+            dict[str, Any]: The quotes that exist, by instrument id.
+        """
+        found = {}
+        for instrument_id in instrument_ids:
+            if instrument_id in self.quotes:
+                found[instrument_id] = self.quotes[instrument_id]
+        return found
