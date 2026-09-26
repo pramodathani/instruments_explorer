@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { apiClient } from './api/apiClient';
+import { ExplorePage } from './explore/ExplorePage';
+import { InstrumentPage } from './instrument/InstrumentPage';
 import { AppLayout } from './layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -39,36 +41,8 @@ export function App() {
         <Route element={<AppLayout onLoggedOut={handleLoggedOut} />}>
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
-          <Route
-            path="explore"
-            element={
-              <PlannedPage
-                title="Explore"
-                description="Search every instrument in the unified broker interface and narrow it down with filters."
-                phase={2}
-                items={[
-                  'Full-text search over symbols, names and underlyings.',
-                  'Filters for exchange, segment, kind, expiry, strike range and lot size, each with a count.',
-                  'A sortable table of results that opens an instrument’s own page.',
-                ]}
-              />
-            }
-          />
-          <Route
-            path="instrument/:instrumentId"
-            element={
-              <PlannedPage
-                title="Instrument"
-                description="One instrument’s live quote, chart, indicators and company knowledge."
-                phase={3}
-                items={[
-                  'A live quote header with market depth.',
-                  'A Highcharts Stock chart with TA-Lib indicators you can add and remove.',
-                  'A 3D candle view, and a company tab with fundamentals, news and documents.',
-                ]}
-              />
-            }
-          />
+          <Route path="explore" element={<ExplorePage />} />
+          <Route path="instrument/:instrumentId" element={<InstrumentPage />} />
           <Route
             path="derivatives"
             element={

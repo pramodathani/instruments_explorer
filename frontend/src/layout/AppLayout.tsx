@@ -5,6 +5,7 @@ import { ApiError, apiClient } from '../api/apiClient';
 import type { StatusDocument } from '../api/types';
 import { ChatPanel } from '../assistant/ChatPanel';
 import { AmbientBackground } from '../components/AmbientBackground';
+import { liveSocket } from '../live/liveServices';
 import { Header } from './Header';
 import type { LayoutContext } from './layoutContext';
 
@@ -38,6 +39,11 @@ export function AppLayout(props: AppLayoutProps) {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    liveSocket.start(onLoggedOut);
+    return () => liveSocket.stop();
+  }, [onLoggedOut]);
 
   const closeChat = useCallback(() => setChatOpen(false), []);
   const openChat = useCallback(() => setChatOpen(true), []);

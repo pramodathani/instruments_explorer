@@ -1,0 +1,170 @@
+.instrument-heading {
+  margin-bottom: 18px;
+}
+
+.instrument-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.instrument-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .instrument-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.last-price {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 40px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.7s, color 0.7s;
+}
+
+.flash-up {
+  background: var(--up-tint);
+  color: var(--up);
+  transition: none;
+}
+
+.flash-down {
+  background: var(--down-tint);
+  color: var(--down);
+  transition: none;
+}
+
+.price-change {
+  margin: 2px 6px 16px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+.day-range {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: var(--ink-muted);
+  font-size: var(--font-size-small);
+}
+
+.day-range-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--down), var(--warning), var(--up));
+  opacity: 0.8;
+}
+
+.day-range-marker {
+  position: absolute;
+  top: -5px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: var(--ink);
+  box-shadow: 0 0 10px var(--ink);
+  transition: left 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.figures-two {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+.figures dt {
+  color: var(--ink-muted);
+  font-size: var(--font-size-small);
+}
+
+.figures dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.depth-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.depth-table th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--ink-muted);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+}
+
+.depth-table td {
+  position: relative;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.depth-table .numeric {
+  text-align: right;
+}
+
+.depth-table tfoot td {
+  border-bottom: none;
+}
+
+.depth-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  z-index: -1;
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.depth-bar-bid {
+  right: 0;
+  background: var(--up-tint);
+}
+
+.depth-bar-offer {
+  left: 0;
+  background: var(--down-tint);
+}
+
+.depth-bid,
+.depth-offer {
+  isolation: isolate;
+}
+
+.chart-placeholder {
+  grid-column: 1 / -1;
+  min-height: 160px;
+}
+
+.broker-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.instrument-id {
+  margin-top: 14px;
+  font-size: 11px;
+}

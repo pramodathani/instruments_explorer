@@ -5,6 +5,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { StatusBadge } from '../components/StatusBadge';
 import { TiltCard } from '../components/TiltCard';
 import { useLayoutContext } from '../layout/layoutContext';
+import { formatter } from '../utilities/formatter';
 
 /** One way of exploring the instruments, shown as a card linking to its page. */
 interface Feature {
@@ -18,7 +19,7 @@ const FEATURES: Feature[] = [
   {
     path: '/explore',
     title: 'Search and browse',
-    description: 'Full-text search with filters for exchange, segment, kind, expiry, strike and lot size.',
+    description: 'Full-text search with filters for asset class, exchange, segment, kind, option type, expiry month and strike.',
     icon: 'explore',
   },
   {
@@ -54,6 +55,7 @@ const FEATURES: Feature[] = [
 export function OverviewPage() {
   const { status, openChat } = useLayoutContext();
   const stores = status === null ? [] : status.stores;
+  const index = status === null ? null : status.index;
   let reachableCount = 0;
   for (const store of stores) {
     if (store.reachable) {
@@ -68,11 +70,30 @@ export function OverviewPage() {
       <div className="grid grid-tiles">
         <TiltCard className="stat-tile">
           <div className="tilt-lift">
-            <div className="stat-label">Stores reachable</div>
+            <div className="stat-label">Services reachable</div>
             <div className="stat-value">
               <AnimatedNumber value={reachableCount} /> <span className="muted">/ {stores.length}</span>
             </div>
-            <div className="stat-detail">MongoDB and ChromaDB</div>
+            <div className="stat-detail">ubi, MongoDB and ChromaDB</div>
+          </div>
+        </TiltCard>
+        <TiltCard className="stat-tile">
+          <div className="tilt-lift">
+            <div className="card-title">
+              <span className="stat-label">Instrument index</span>
+              {index === null ? null : (
+                <StatusBadge
+                  kind={index.state === 'ready' ? 'good' : index.state === 'unavailable' ? 'critical' : 'warning'}
+                  label={index.state}
+                />
+              )}
+            </div>
+            <div className="stat-value">
+              <AnimatedNumber value={index?.instrument_count ?? 0} />
+            </div>
+            <div className="stat-detail">
+              {index?.mapping_date ? `instruments in the catalogue of ${formatter.date(index.mapping_date)}` : 'not built yet'}
+            </div>
           </div>
         </TiltCard>
         {stores.map((store) => (
