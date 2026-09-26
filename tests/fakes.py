@@ -11,6 +11,8 @@ import pymongo.errors
 import redis
 from anthropic import _models as anthropic_models
 from anthropic.types.beta import parsed_beta_message
+from tradingmachine.ubi_client import exceptions as tradingmachine_exceptions
+from tradingmachine.ubi_client import prices_document
 
 from instruments_explorer.unified_broker_interface import exceptions
 
@@ -697,6 +699,231 @@ class FakeSnapshotReader:
             if instrument_id in self.quotes:
                 found[instrument_id] = self.quotes[instrument_id]
         return found
+
+
+class FakeLiveQuoteSource:
+    """A stand-in for tradingmachine's LiveQuoteReader serving prepared quotes, synchronously.
+
+    Attributes:
+        quotes: Unified quotes by instrument id.
+        reads: The list of instrument ids asked for, one list per read.
+        failing: Whether every read raises UnreachableError, as when UBI's Redis is down.
+    """
+
+    def __init__(self, quotes: dict[str, Any] | None = None):
+        """Creates the source.
+
+        Args:
+            quotes (dict[str, Any] | None): Unified quotes by instrument id, or None for none.
+        """
+        if quotes is None:
+            quotes = {}
+        self.quotes = quotes
+        self.reads = []
+        self.failing = False
+
+    def read(self, instrument_ids: list[str]) -> dict[str, dict]:
+        """Returns the prepared quotes of the instruments asked for.
+
+        Args:
+            instrument_ids (list[str]): The instruments.
+
+        Returns:
+            dict[str, dict]: The quotes that exist, by instrument id.
+
+        Raises:
+            UnreachableError: The source is set to fail.
+        """
+        self.reads.append(list(instrument_ids))
+        if self.failing:
+            raise tradingmachine_exceptions.UnreachableError(
+                'UBI Redis could not be read for live quotes: down in this test'
+            )
+        found = {}
+        for instrument_id in instrument_ids:
+            if instrument_id in self.quotes:
+                found[instrument_id] = self.quotes[instrument_id]
+        return found
+
+
+class FakeMasterStream:
+    """A stand-in for tradingmachine's InstrumentMasterStream handing out prepared identities.
+
+    Attributes:
+        mapping_date: The catalogue's mapping date.
+        closed: Whether the stream was closed.
+        failure: An exception raised once the identities run out, or None to end normally.
+    """
+
+    def __init__(self, identities: list[dict[str, Any]], mapping_date: str):
+        """Creates the stream.
+
+        Args:
+            identities (list[dict[str, Any]]): The identity documents, in catalogue order.
+            mapping_date (str): The catalogue's mapping date.
+        """
+        self.mapping_date = mapping_date
+        self.closed = False
+        self.failure = None
+        self._identities = list(identities)
+
+    def next_batch(self, batch_size: int) -> list[dict[str, Any]] | None:
+        """Hands out the next batch.
+
+        Args:
+            batch_size (int): The most identities in the batch.
+
+        Returns:
+            list[dict[str, Any]] | None: The batch, or None once every identity has been handed out.
+
+        Raises:
+            UnifiedBrokerInterfaceError: The stream is set to fail at its end.
+        """
+        if not self._identities:
+            if self.failure is not None:
+                raise self.failure
+            return None
+        batch = self._identities[:batch_size]
+        self._identities = self._identities[batch_size:]
+        return batch
+
+    def close(self) -> None:
+        """Marks the stream closed."""
+        self.closed = True
+
+
+class FakeTradingmachineCatalogue:
+    """A stand-in for tradingmachine's InstrumentCatalogue answering from prepared documents, synchronously.
+
+    Attributes:
+        greeting: UBI's welcome document.
+        segments: UBI's segments document.
+        documents: Answers by (route name, instrument id), where the route name is "details", "additional_details" or "quote".
+        prices: Prices documents by instrument id.
+        price_requests: One tuple (instrument_id, interval, days, adjusted) per prices request.
+        master: The stream open_master returns.
+    """
+
+    def __init__(self):
+        """Creates the catalogue with a greeting, a mapping date and nothing else."""
+        self.greeting = {
+            'message': 'Welcome to the Unified Broker Interface API',
+        }
+        self.segments = {
+            'mapping_date': '2026-09-26',
+            'exchanges': [],
+            'segments': [],
+        }
+        self.documents = {}
+        self.prices = {}
+        self.price_requests = []
+        self.master = FakeMasterStream([], '2026-09-26')
+
+    def details(self, instrument_id: str) -> dict[str, Any]:
+        """Answers the details route.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+
+        Returns:
+            dict[str, Any]: The prepared document.
+
+        Raises:
+            NotFoundError: No document was prepared.
+        """
+        return self._answer('details', instrument_id)
+
+    def additional_details(self, instrument_id: str) -> dict[str, Any]:
+        """Answers the additional details route.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+
+        Returns:
+            dict[str, Any]: The prepared document.
+
+        Raises:
+            NotFoundError: No document was prepared.
+        """
+        return self._answer('additional_details', instrument_id)
+
+    def quote(self, instrument_id: str) -> dict[str, Any]:
+        """Answers the quote route.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+
+        Returns:
+            dict[str, Any]: The prepared document.
+
+        Raises:
+            NotFoundError: No document was prepared.
+        """
+        return self._answer('quote', instrument_id)
+
+    def prices_document(
+        self,
+        instrument_id: str,
+        interval: str = 'day',
+        from_date: str | None = None,
+        to_date: str | None = None,
+        days: int | None = None,
+        adjusted: bool = True,
+    ) -> prices_document.PricesDocument:
+        """Answers the prices route.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+            interval (str): The candle length.
+            from_date (str | None): Unused.
+            to_date (str | None): Unused.
+            days (int | None): How many days back.
+            adjusted (bool): Whether prices are adjusted.
+
+        Returns:
+            prices_document.PricesDocument: The prepared document, or an empty one.
+        """
+        del from_date, to_date
+        self.price_requests.append(
+            (
+                instrument_id,
+                interval,
+                days,
+                adjusted,
+            )
+        )
+        return prices_document.PricesDocument(
+            self.prices.get(instrument_id, {})
+        )
+
+    def open_master(self) -> FakeMasterStream:
+        """Opens the prepared master stream.
+
+        Returns:
+            FakeMasterStream: The stream.
+        """
+        return self.master
+
+    def _answer(self, route: str, instrument_id: str) -> dict[str, Any]:
+        """Finds a prepared answer.
+
+        Args:
+            route (str): The route name.
+            instrument_id (str): UBI's instrument id.
+
+        Returns:
+            dict[str, Any]: The prepared document.
+
+        Raises:
+            NotFoundError: No document was prepared.
+        """
+        answer = self.documents.get((route, instrument_id))
+        if answer is None:
+            raise tradingmachine_exceptions.NotFoundError(
+                f'Unknown instrument_id: {instrument_id}',
+                status_code=404,
+            )
+        return answer
 
 
 class FakeCursor:
