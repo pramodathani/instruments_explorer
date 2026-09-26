@@ -2,14 +2,13 @@
 
 Typical usage example:
 
-  values = OnBalanceVolume().compute(series, {})
+  values = OnBalanceVolume().compute(analysis, {})
 """
 
 import numpy
-import talib
+from tradingmachine.assets.analysis import candle_frame_analysis
 
 from instruments_explorer.indicators import base
-from instruments_explorer.market import candle_series
 
 _FAMILY = 'Volume'
 
@@ -38,21 +37,22 @@ class OnBalanceVolume(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the running total, treating a missing volume as zero.
+        """Computes the running volume total with tradingmachine, counting missing volume as zero.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): None are used.
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
         del parameters
+        frame = analysis.on_balance_volume()
         return {
-            'value': talib.OBV(series.close, numpy.nan_to_num(series.volume)),
+            'value': self.column(frame, 'obv'),
         }
 
 
@@ -80,26 +80,22 @@ class AccumulationDistribution(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the line, treating a missing volume as zero.
+        """Computes the accumulation/distribution line with tradingmachine, counting missing volume as zero.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): None are used.
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
         del parameters
+        frame = analysis.chaikin_accumulation_distribution_line()
         return {
-            'value': talib.AD(
-                series.high,
-                series.low,
-                series.close,
-                numpy.nan_to_num(series.volume),
-            ),
+            'value': self.column(frame, 'chaikin_ad'),
         }
 
 
@@ -133,25 +129,24 @@ class ChaikinOscillator(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the oscillator, treating a missing volume as zero.
+        """Computes the oscillator with tradingmachine, counting missing volume as zero.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): "fast" and "slow".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
+        fast = int(parameters['fast'])
+        slow = int(parameters['slow'])
+        frame = analysis.chaikin_accumulation_distribution_oscillator(
+            fast_period=fast,
+            slow_period=slow,
+        )
         return {
-            'value': talib.ADOSC(
-                series.high,
-                series.low,
-                series.close,
-                numpy.nan_to_num(series.volume),
-                fastperiod=parameters['fast'],
-                slowperiod=parameters['slow'],
-            ),
+            'value': self.column(frame, f'chaikin_adosc{fast}_{slow}'),
         }

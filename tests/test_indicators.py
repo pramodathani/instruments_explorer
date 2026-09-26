@@ -4,6 +4,7 @@ import numpy
 import pytest
 
 from instruments_explorer.indicators import base
+from instruments_explorer.indicators import candle_analysis_factory
 from instruments_explorer.indicators import indicator_calculator
 from instruments_explorer.indicators import indicator_catalogue
 from instruments_explorer.indicators import moving_averages
@@ -103,10 +104,13 @@ class TestEveryIndicator:
         series = candle_series.CandleSeries.from_prices_document(
             fakes.PricesMaker().document(200)
         )
+        analysis = candle_analysis_factory.CandleAnalysisFactory().create(
+            series
+        )
         catalogue = indicator_catalogue.IndicatorCatalogue()
         for description in catalogue.describe():
             indicator = catalogue.find(description['key'])
-            values = indicator.compute(series, indicator.resolve([]))
+            values = indicator.compute(analysis, indicator.resolve([]))
             output_keys = []
             for output_key, _ in indicator.outputs:
                 output_keys.append(output_key)
@@ -114,6 +118,21 @@ class TestEveryIndicator:
             for array in values.values():
                 assert len(array) == len(series), indicator.key
                 assert not numpy.isnan(array[-1]), indicator.key
+
+    def test_empty_candles_give_empty_arrays(self) -> None:
+        """Checks that an indicator over no candles gives empty lines rather than failing."""
+        series = candle_series.CandleSeries.from_prices_document(
+            fakes.PricesMaker().document(0)
+        )
+        analysis = candle_analysis_factory.CandleAnalysisFactory().create(
+            series
+        )
+        catalogue = indicator_catalogue.IndicatorCatalogue()
+        for description in catalogue.describe():
+            indicator = catalogue.find(description['key'])
+            values = indicator.compute(analysis, indicator.resolve([]))
+            for array in values.values():
+                assert len(array) == 0, indicator.key
 
     def test_keys_are_unique(self) -> None:
         """Checks that no two indicators share a key."""

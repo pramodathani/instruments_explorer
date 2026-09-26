@@ -20,7 +20,7 @@ from typing import Any
 from instruments_explorer.instruments import asset_classifier
 from instruments_explorer.instruments import instrument_namer
 from instruments_explorer.instruments import search_text_builder
-from instruments_explorer.unified_broker_interface import rest_client
+from instruments_explorer.unified_broker_interface import catalogue_gateway
 from instruments_explorer.utilities import clock
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,14 +118,14 @@ class InstrumentIndexBuilder:
 
     def __init__(
         self,
-        client: rest_client.UnifiedBrokerInterfaceClient,
+        client: catalogue_gateway.CatalogueGateway,
         index_directory: Path,
         time_source: clock.SystemClock,
     ):
         """Creates the builder.
 
         Args:
-            client (rest_client.UnifiedBrokerInterfaceClient): Downloads the instrument master.
+            client (catalogue_gateway.CatalogueGateway): Downloads the instrument master.
             index_directory (Path): The directory holding the index files.
             time_source (clock.SystemClock): The source of today's date.
         """

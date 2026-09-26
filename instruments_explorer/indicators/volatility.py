@@ -2,14 +2,13 @@
 
 Typical usage example:
 
-  values = BollingerBands().compute(series, {'period': 20, 'deviations': 2.0})
+  values = BollingerBands().compute(analysis, {'period': 20, 'deviations': 2.0})
 """
 
 import numpy
-import talib
+from tradingmachine.assets.analysis import candle_frame_analysis
 
 from instruments_explorer.indicators import base
-from instruments_explorer.market import candle_series
 
 _FAMILY = 'Volatility'
 
@@ -55,29 +54,28 @@ class BollingerBands(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the three bands.
+        """Computes the three bands with tradingmachine.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): "period" and "deviations".
 
         Returns:
             dict[str, numpy.ndarray]: "upper", "middle" and "lower".
         """
-        upper, middle, lower = talib.BBANDS(
-            series.close,
-            timeperiod=parameters['period'],
-            nbdevup=parameters['deviations'],
-            nbdevdn=parameters['deviations'],
-            matype=0,
+        period = int(parameters['period'])
+        frame = analysis.bollinger_bands(
+            window=period,
+            standard_deviations_up=parameters['deviations'],
+            standard_deviations_down=parameters['deviations'],
         )
         return {
-            'upper': upper,
-            'middle': middle,
-            'lower': lower,
+            'upper': self.column(frame, f'bb_upper_{period}'),
+            'middle': self.column(frame, f'bb_middle_{period}'),
+            'lower': self.column(frame, f'bb_lower_{period}'),
         }
 
 
@@ -106,25 +104,22 @@ class AverageTrueRange(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the average true range.
+        """Computes the average true range with tradingmachine.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
+        period = int(parameters['period'])
+        frame = analysis.average_true_range(window=period)
         return {
-            'value': talib.ATR(
-                series.high,
-                series.low,
-                series.close,
-                timeperiod=parameters['period'],
-            ),
+            'value': self.column(frame, f'atr_{period}'),
         }
 
 
@@ -153,23 +148,20 @@ class NormalizedAverageTrueRange(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the normalized average true range.
+        """Computes the normalized average true range with tradingmachine.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): "period".
 
         Returns:
-            dict[str, numpy.ndarray]: "value", in percent.
+            dict[str, numpy.ndarray]: "value".
         """
+        period = int(parameters['period'])
+        frame = analysis.normalized_average_true_range(window=period)
         return {
-            'value': talib.NATR(
-                series.high,
-                series.low,
-                series.close,
-                timeperiod=parameters['period'],
-            ),
+            'value': self.column(frame, f'natr{period}'),
         }

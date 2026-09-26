@@ -2,26 +2,14 @@
 
 Typical usage example:
 
-  values = CandlestickPatterns().compute(series, {})
+  values = CandlestickPatterns().compute(analysis, {})
 """
 
 import numpy
-import talib
+from tradingmachine.assets.analysis import candle_frame_analysis
 
 from instruments_explorer.indicators import base
-from instruments_explorer.market import candle_series
 
-PATTERN_FUNCTIONS = {
-    'doji': talib.CDLDOJI,
-    'hammer': talib.CDLHAMMER,
-    'shooting_star': talib.CDLSHOOTINGSTAR,
-    'engulfing': talib.CDLENGULFING,
-    'harami': talib.CDLHARAMI,
-    'morning_star': talib.CDLMORNINGSTAR,
-    'evening_star': talib.CDLEVENINGSTAR,
-    'three_white_soldiers': talib.CDL3WHITESOLDIERS,
-    'three_black_crows': talib.CDL3BLACKCROWS,
-}
 PATTERN_LABELS = {
     'doji': 'Doji',
     'hammer': 'Hammer',
@@ -36,7 +24,7 @@ PATTERN_LABELS = {
 
 
 class CandlestickPatterns(base.BaseIndicator):
-    """Nine well-known candlestick patterns found by TA-Lib."""
+    """Nine well-known candlestick patterns, found by TA-Lib through tradingmachine."""
 
     def __init__(self):
         """Describes the indicator."""
@@ -61,23 +49,45 @@ class CandlestickPatterns(base.BaseIndicator):
 
     def compute(
         self,
-        series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Finds every pattern.
+        """Finds every pattern with tradingmachine.
 
         Args:
-            series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
             parameters (dict[str, float]): None are used.
 
         Returns:
             dict[str, numpy.ndarray]: One array per pattern: 100 where a bullish pattern ends, −100 where a bearish one ends, and 0 elsewhere.
         """
         del parameters
-        found = {}
-        for pattern_key, function in PATTERN_FUNCTIONS.items():
-            values = function(
-                series.open, series.high, series.low, series.close
-            )
-            found[pattern_key] = values.astype(numpy.float64)
-        return found
+        return {
+            'doji': self.column(analysis.candle_doji(), 'candle_doji'),
+            'hammer': self.column(analysis.candle_hammer(), 'candle_hammer'),
+            'shooting_star': self.column(
+                analysis.candle_shooting_star(),
+                'candle_shooting_star',
+            ),
+            'engulfing': self.column(
+                analysis.candle_engulfing(),
+                'candle_engulfing',
+            ),
+            'harami': self.column(analysis.candle_harami(), 'candle_harami'),
+            'morning_star': self.column(
+                analysis.candle_morning_star(),
+                'candle_morning_star',
+            ),
+            'evening_star': self.column(
+                analysis.candle_evening_star(),
+                'candle_evening_star',
+            ),
+            'three_white_soldiers': self.column(
+                analysis.candle_three_white_soldiers(),
+                'candle_three_white_soldiers',
+            ),
+            'three_black_crows': self.column(
+                analysis.candle_three_black_crows(),
+                'candle_three_black_crows',
+            ),
+        }

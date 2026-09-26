@@ -12,13 +12,13 @@ import sqlite3
 from typing import Annotated, Any
 
 import fastapi
+from tradingmachine.ubi_client import exceptions
 
 from instruments_explorer.instruments import instrument_index
 from instruments_explorer.instruments import instrument_index_maintainer
 from instruments_explorer.market import quote_encoder
 from instruments_explorer.security import session_guard
-from instruments_explorer.unified_broker_interface import exceptions
-from instruments_explorer.unified_broker_interface import rest_client
+from instruments_explorer.unified_broker_interface import catalogue_gateway
 
 _STATUS_BY_ERROR = [
     (
@@ -58,14 +58,14 @@ class InstrumentRoutes:
     def __init__(
         self,
         maintainer: instrument_index_maintainer.InstrumentIndexMaintainer,
-        client: rest_client.UnifiedBrokerInterfaceClient,
+        client: catalogue_gateway.CatalogueGateway,
         guard: session_guard.SessionGuard,
     ):
         """Creates the routes.
 
         Args:
             maintainer (instrument_index_maintainer.InstrumentIndexMaintainer): Holds the current instrument index.
-            client (rest_client.UnifiedBrokerInterfaceClient): Reads instruments and quotes from UBI.
+            client (catalogue_gateway.CatalogueGateway): Reads instruments and quotes from UBI.
             guard (session_guard.SessionGuard): Requires a logged-in session.
         """
         self.maintainer = maintainer
