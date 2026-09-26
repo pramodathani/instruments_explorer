@@ -1,6 +1,7 @@
 """Test doubles shared by the test modules."""
 
 import datetime
+import math
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -412,6 +413,8 @@ class FakeCatalogueClient:
         details_by_id: Details documents by instrument id.
         additional_by_id: Additional details documents by instrument id.
         quotes_by_id: Quote documents by instrument id.
+        prices_by_id: Prices documents by instrument id.
+        price_requests: The (instrument id, interval, days, adjusted) of every prices call.
         failure: An error every per-instrument call raises, or None.
         master_downloads: How many times the master was streamed.
     """
@@ -432,6 +435,8 @@ class FakeCatalogueClient:
         self.details_by_id = {}
         self.additional_by_id = {}
         self.quotes_by_id = {}
+        self.prices_by_id = {}
+        self.price_requests = []
         self.failure = None
         self.master_downloads = 0
 
@@ -517,6 +522,37 @@ class FakeCatalogueClient:
         """
         return self._lookup(self.quotes_by_id, instrument_id)
 
+    async def prices(
+        self,
+        instrument_id: str,
+        interval: str,
+        days: int,
+        adjusted: bool,
+    ) -> Any:
+        """Returns a prepared prices document and records the request.
+
+        Args:
+            instrument_id (str): The instrument id.
+            interval (str): The candle interval.
+            days (int): How many days back.
+            adjusted (bool): Whether adjusted prices were asked for.
+
+        Returns:
+            Any: The prices document.
+
+        Raises:
+            UnifiedBrokerInterfaceError: The prepared failure, or NotFoundError for an unknown id.
+        """
+        self.price_requests.append(
+            (
+                instrument_id,
+                interval,
+                days,
+                adjusted,
+            )
+        )
+        return self._lookup(self.prices_by_id, instrument_id)
+
     def _lookup(self, documents: dict[str, Any], instrument_id: str) -> Any:
         """Finds a prepared document or raises the prepared failure.
 
@@ -568,3 +604,59 @@ class RecordingSocket:
             code (int): The close code.
         """
         self.closed_with = code
+
+
+class PricesMaker:
+    """Writes UBI prices documents with made-up candles."""
+
+    def document(
+        self,
+        count: int,
+        with_volume: bool = True,
+    ) -> dict[str, Any]:
+        """Writes daily candles whose close follows a slow wave around 1000.
+
+        Args:
+            count (int): How many candles to write.
+            with_volume (bool): Whether candles have volume, or zero as for an index.
+
+        Returns:
+            dict[str, Any]: A prices document with "columns" and "candles", oldest first.
+        """
+        start = datetime.datetime(
+            2025,
+            1,
+            1,
+            tzinfo=datetime.UTC,
+        )
+        candles = []
+        for index in range(count):
+            moment = start + datetime.timedelta(days=index)
+            close = 1000 + 50 * math.sin(index / 7) + index * 0.5
+            candles.append(
+                [
+                    moment.isoformat(),
+                    close - 2,
+                    close + 6,
+                    close - 7,
+                    close,
+                    1000 + index * 10 if with_volume else 0,
+                    None,
+                ]
+            )
+        return {
+            'interval': 'day',
+            'price_basis': 'adjusted',
+            'adjustable': True,
+            'source': 'database',
+            'columns': [
+                'time',
+                'open',
+                'high',
+                'low',
+                'close',
+                'volume',
+                'oi',
+            ],
+            'candles': candles,
+        }
