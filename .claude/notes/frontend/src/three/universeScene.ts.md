@@ -19,3 +19,7 @@ The pointer handler only records the position; the raycast runs once in the next
 ## Opening animation
 
 At the maximal level the galaxies grow out of the centre over 2.4 seconds while turning, and labels appear when it ends. Browsers do not deliver animation frames to a hidden tab, so a tab opened in the background shows the animation frozen until it is brought to the front. During browser checks with the automation extension the tab reports `document.visibilityState === 'hidden'`, so checks there are easiest with the animation level set to off.
+
+## Dot texture
+
+The dots were first drawn with a radial gradient that began fading 35% of the way from the centre, so most of each dot was a soft halo and the map looked blurry at 3 pixels. `SpriteTexture.create` now draws a solid disc that fades only in its outer 18%, just enough to avoid jagged edges, and turns off mipmaps, which blurred small points further. The ambient background's particles use the same texture.
