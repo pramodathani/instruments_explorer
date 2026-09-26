@@ -1,13 +1,15 @@
 anthropic==1.8.0
 argon2-cffi==25.1.0
+beautifulsoup4==4.15.0
 chromadb==1.5.9
 fastapi==0.141.1
 httpx==0.28.1
 itsdangerous==2.2.0
 numpy==2.5.3
-pydantic==2.13.5
 pydantic-settings==2.15.0
+pydantic==2.13.5
 pymongo==4.18.2
+pypdf==6.19.0
 pytest==9.1.1
 python-dotenv==1.2.3
 python-multipart==0.0.32
@@ -16,3 +18,4 @@ ruff==0.16.9
 starlette==1.7.0
 TA-Lib==0.8.1
 uvicorn[standard]==0.54.0
+yfinance==1.7.0

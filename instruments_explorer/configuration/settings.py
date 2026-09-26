@@ -26,7 +26,7 @@ class Settings(pydantic_settings.BaseSettings):
         session_secret: The secret that signs the session cookie.
         session_max_age_seconds: How long a login lasts, in seconds.
         frontend_directory: The directory holding the built React application.
-        data_directory: The directory holding the project's own files, such as the instrument index.
+        data_directory: The directory holding the project's own files, such as the instrument index and uploaded documents.
         unified_broker_interface_directory: The directory of the unified_broker_interface project.
         mongodb_host: The host of the project's own MongoDB.
         mongodb_port: The port of the project's own MongoDB.
@@ -42,6 +42,11 @@ class Settings(pydantic_settings.BaseSettings):
         index_check_interval_seconds: How often UBI's mapping date is checked for a new catalogue, in seconds.
         live_quote_interval_seconds: How often the watched instruments' quotes are read from UBI's Redis, in seconds.
         risk_free_rate: The yearly rate options are discounted at when working out implied volatility and the Greeks, such as 0.065 for 6.5%.
+        knowledge_contact: Contact details sent to Wikipedia in the user agent, as its robot policy asks; the Wikipedia fetcher is off while empty.
+        google_search_api_key: The Google Programmable Search API key; web search is off while empty.
+        google_search_engine_id: The Google Programmable Search engine id.
+        knowledge_host_interval_seconds: The shortest wait between two requests to the same website, in seconds.
+        knowledge_refresh_hours: How often news is fetched again for companies fetched before, in hours.
         anthropic_api_key: The Claude API key for the chat assistant, or an empty string while it is not configured.
         claude_model: The Claude model the chat assistant uses.
         claude_effort: How much effort the chat assistant's model spends on each turn.
@@ -78,6 +83,11 @@ class Settings(pydantic_settings.BaseSettings):
     index_check_interval_seconds: float = pydantic.Field(default=600.0, gt=0)
     live_quote_interval_seconds: float = pydantic.Field(default=0.5, gt=0)
     risk_free_rate: float = pydantic.Field(default=0.065, ge=0, lt=1)
+    knowledge_contact: str = ''
+    google_search_api_key: str = ''
+    google_search_engine_id: str = ''
+    knowledge_host_interval_seconds: float = pydantic.Field(default=2.0, ge=0)
+    knowledge_refresh_hours: float = pydantic.Field(default=6.0, gt=0)
     anthropic_api_key: str = ''
     claude_model: str = 'claude-opus-5-5'
     claude_effort: Literal[
