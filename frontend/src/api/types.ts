@@ -135,3 +135,67 @@ export interface Quote {
   stale: boolean;
   source: string;
 }
+
+/** One number an indicator can be tuned by. */
+export interface IndicatorParameterDescription {
+  name: string;
+  label: string;
+  default: number;
+  minimum: number;
+  maximum: number;
+  whole_number: boolean;
+}
+
+/** One indicator the chart can show, as /api/indicators describes it. */
+export interface IndicatorDescription {
+  key: string;
+  short_label: string;
+  label: string;
+  family: string;
+  description: string;
+  placement: 'price' | 'panel' | 'markers';
+  parameters: IndicatorParameterDescription[];
+  outputs: {
+    key: string;
+    label: string;
+  }[];
+  reference_lines: number[];
+  needs_volume: boolean;
+}
+
+/** One computed indicator in a chart answer. */
+export interface IndicatorResult {
+  id: string;
+  key: string;
+  title: string;
+  placement: 'price' | 'panel' | 'markers';
+  reference_lines: number[];
+  outputs: {
+    key: string;
+    label: string;
+    points: [number, number][];
+  }[];
+  markers: {
+    time: number;
+    pattern: string;
+    label: string;
+    bullish: boolean;
+  }[];
+}
+
+/** A candle row: time in epoch milliseconds, open, high, low, close, volume and open interest. */
+export type CandleRow = [number, number | null, number | null, number | null, number | null, number | null, number | null];
+
+/** The answer of /api/instruments/{id}/chart. */
+export interface ChartResponse {
+  instrument_id: string;
+  interval: string;
+  days: number;
+  price_basis: string | null;
+  adjustable: boolean;
+  source: string | null;
+  has_volume: boolean;
+  candles: CandleRow[];
+  indicators: IndicatorResult[];
+  errors: string[];
+}

@@ -1,5 +1,7 @@
 import type {
+  ChartResponse,
   IndexStatus,
+  IndicatorDescription,
   InstrumentDocument,
   Quote,
   SearchParameters,
@@ -150,6 +152,51 @@ export class ApiClient {
       credentials: 'same-origin',
     });
     return (await this.readJson(response)) as unknown as Quote;
+  }
+
+  /**
+   * Fetches the indicators the chart can show.
+   * @returns One description per indicator.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchIndicators(): Promise<IndicatorDescription[]> {
+    const response = await fetch('/api/indicators', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as IndicatorDescription[];
+  }
+
+  /**
+   * Fetches an instrument's candles with the requested indicators.
+   * @param instrumentId The instrument's id.
+   * @param interval The candle interval, such as "day".
+   * @param days How many days back to read.
+   * @param adjusted Whether to correct an adjustable instrument for splits and bonuses.
+   * @param indicators Indicator requests such as "rsi:14".
+   * @param signal Aborts the request when a newer one replaces it.
+   * @returns The candles and indicators.
+   * @throws ApiError for an invalid range, an unknown instrument or when ubi cannot be reached.
+   */
+  async fetchChart(
+    instrumentId: string,
+    interval: string,
+    days: number,
+    adjusted: boolean,
+    indicators: string[],
+    signal: AbortSignal,
+  ): Promise<ChartResponse> {
+    const query = new URLSearchParams();
+    query.set('interval', interval);
+    query.set('days', String(days));
+    query.set('adjusted', adjusted ? 'true' : 'false');
+    for (const indicator of indicators) {
+      query.append('indicator', indicator);
+    }
+    const response = await fetch(`/api/instruments/${encodeURIComponent(instrumentId)}/chart?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as ChartResponse;
   }
 
   /**

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { ApiError, apiClient } from '../api/apiClient';
@@ -9,6 +9,13 @@ import { useLiveQuote } from '../live/useLiveQuote';
 import { formatter } from '../utilities/formatter';
 import { DepthTable } from './DepthTable';
 import { QuotePanel } from './QuotePanel';
+
+const ChartPanel = lazy(async () => {
+  const module = await import('../charts/ChartPanel');
+  return {
+    default: module.ChartPanel,
+  };
+});
 
 const ATTRIBUTE_LABELS: Record<string, string> = {
   isin: 'ISIN',
@@ -97,12 +104,9 @@ export function InstrumentPage() {
       <div className="instrument-grid">
         <QuotePanel quote={quote} error={quoteError} isDerivative={record !== null && record.shape !== 'security'} />
         <DepthTable quote={quote} />
-        <TiltCard className="chart-placeholder">
-          <div className="tilt-lift">
-            <h2>Chart and indicators</h2>
-            <p className="muted">The Highcharts Stock chart with TA-Lib indicators and a 3D candle view arrives in phase 3.</p>
-          </div>
-        </TiltCard>
+        <Suspense fallback={<div className="card chart-card chart-card-loading">Loading the chart…</div>}>
+          <ChartPanel instrumentId={instrumentId} quote={quote} />
+        </Suspense>
         <TiltCard>
           <div className="tilt-lift">
             <h2>Contract</h2>
