@@ -10,6 +10,7 @@ import starlette.websockets
 
 from instruments_explorer import application
 from instruments_explorer.configuration import settings
+from instruments_explorer.derivatives import option_chain_builder
 from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import instrument_index_maintainer
 from instruments_explorer.market import live_quote_hub
@@ -36,6 +37,7 @@ class RouteParts:
         catalogue_client: The stand-in for UBI's REST client.
         hub: The live quote hub.
         maintainer: The index maintainer.
+        snapshot_reader: The stand-in for the live quote snapshot reader.
     """
 
     def __init__(
@@ -77,6 +79,13 @@ class RouteParts:
         if build_index:
             asyncio.run(self.maintainer.refresh())
         self.hub = live_quote_hub.LiveQuoteHub()
+        self.snapshot_reader = fakes.FakeSnapshotReader()
+        chain_builder = option_chain_builder.OptionChainBuilder(
+            self.maintainer,
+            self.snapshot_reader,
+            time_source,
+            0.065,
+        )
         web_application = explorer.create_web_application(
             authenticator.Authenticator(_HASH, time_source),
             [
@@ -86,6 +95,7 @@ class RouteParts:
             self.maintainer,
             self.catalogue_client,
             self.hub,
+            chain_builder,
             with_lifespan=False,
         )
         self.client = fastapi.testclient.TestClient(web_application)
@@ -628,3 +638,85 @@ class TestChartRoutes:
         )
         assert response.status_code == 400
         assert parts.catalogue_client.price_requests == []
+
+
+class TestDerivativeRoutes:
+    """Tests for the /api/derivatives routes."""
+
+    def test_underlyings(self, tmp_path: Path) -> None:
+        """Checks that underlyings with derivatives are listed, index first.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        names = []
+        for entry in parts.client.get('/api/derivatives/underlyings').json():
+            names.append(entry['underlying_symbol'])
+        assert names[:2] == [
+            'NIFTY',
+            'RELIANCE',
+        ]
+        assert 'GOLD' in names
+
+    def test_expiries(self, tmp_path: Path) -> None:
+        """Checks the expiry description of an underlying.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        body = parts.client.get(
+            '/api/derivatives/expiries?exchange=nse&underlying=nifty'
+        ).json()
+        assert body['spot']['instrument_id'] == fakes.NIFTY_ID
+        expiry_dates = []
+        for entry in body['option_expiries']:
+            expiry_dates.append(entry['expiry_date'])
+        assert expiry_dates == [
+            '2026-09-29',
+            '2026-10-27',
+        ]
+
+    def test_chain_for_a_missing_expiry(self, tmp_path: Path) -> None:
+        """Checks that an expiry without options gets 404.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.get(
+            '/api/derivatives/chain?exchange=nse&underlying=NIFTY&expiry=2030-01-01'
+        )
+        assert response.status_code == 404
+
+    def test_unknown_underlying(self, tmp_path: Path) -> None:
+        """Checks that an underlying without derivatives gets 404.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.get(
+            '/api/derivatives/surface?exchange=nse&underlying=NOBODY'
+        )
+        assert response.status_code == 404
+
+    def test_before_the_index_is_ready(self, tmp_path: Path) -> None:
+        """Checks that derivative routes get 503 while the index is not built.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(
+            tmp_path / 'dist',
+            tmp_path / 'index',
+            build_index=False,
+        )
+        parts.log_in()
+        response = parts.client.get('/api/derivatives/underlyings')
+        assert response.status_code == 503

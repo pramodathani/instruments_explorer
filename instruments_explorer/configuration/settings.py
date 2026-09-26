@@ -41,6 +41,7 @@ class Settings(pydantic_settings.BaseSettings):
         ubi_connect_cooldown_seconds: The shortest time between two connects to UBI, in seconds.
         index_check_interval_seconds: How often UBI's mapping date is checked for a new catalogue, in seconds.
         live_quote_interval_seconds: How often the watched instruments' quotes are read from UBI's Redis, in seconds.
+        risk_free_rate: The yearly rate options are discounted at when working out implied volatility and the Greeks, such as 0.065 for 6.5%.
         anthropic_api_key: The Claude API key for the chat assistant, or an empty string while it is not configured.
         claude_model: The Claude model the chat assistant uses.
         claude_effort: How much effort the chat assistant's model spends on each turn.
@@ -76,6 +77,7 @@ class Settings(pydantic_settings.BaseSettings):
     ubi_connect_cooldown_seconds: float = pydantic.Field(default=60.0, gt=0)
     index_check_interval_seconds: float = pydantic.Field(default=600.0, gt=0)
     live_quote_interval_seconds: float = pydantic.Field(default=0.5, gt=0)
+    risk_free_rate: float = pydantic.Field(default=0.065, ge=0, lt=1)
     anthropic_api_key: str = ''
     claude_model: str = 'claude-opus-5-5'
     claude_effort: Literal[
