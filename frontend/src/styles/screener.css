@@ -1,0 +1,109 @@
+.screener-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.screener-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.screener-progress {
+  width: 180px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--gridline);
+}
+
+.screener-progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--second), var(--accent));
+  transition: width 0.4s ease;
+}
+
+.screener-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.preset-chip {
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, transform 0.15s;
+}
+
+.preset-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.screener-builder {
+  position: relative;
+  z-index: 5;
+}
+
+.sector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sector-chip {
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sector-chosen {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.condition-menu {
+  grid-template-columns: 1fr;
+  width: min(420px, 90vw);
+}
+
+.condition-option {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.condition-option .muted {
+  white-space: normal;
+}
+
+.heatmap-card,
+.screener-results {
+  background: var(--surface-solid);
+  backdrop-filter: none;
+}
+
+.screener-results {
+  padding: 0;
+  overflow: clip;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: var(--accent);
+}

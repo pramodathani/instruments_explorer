@@ -24,6 +24,13 @@ const KnowledgePage = lazy(async () => {
   };
 });
 
+const ScreenerPage = lazy(async () => {
+  const module = await import('./screener/ScreenerPage');
+  return {
+    default: module.ScreenerPage,
+  };
+});
+
 type SessionState = 'checking' | 'logged-out' | 'logged-in';
 
 /**
@@ -83,15 +90,9 @@ export function App() {
           <Route
             path="screener"
             element={
-              <PlannedPage
-                title="Screener"
-                description="Find instruments that meet technical conditions, computed daily with TA-Lib."
-                phase={6}
-                items={[
-                  'Conditions such as RSI range, moving-average crossovers, distance from the 52-week high or low, and volume spikes.',
-                  'A results table and a heatmap of the results by sector.',
-                ]}
-              />
+              <Suspense fallback={<p className="muted">Loading the screener…</p>}>
+                <ScreenerPage />
+              </Suspense>
             }
           />
           <Route

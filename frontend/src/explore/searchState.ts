@@ -1,6 +1,6 @@
 import type { FacetColumn, SearchParameters } from '../api/types';
 
-export const FACET_COLUMNS: FacetColumn[] = ['asset_class', 'exchange', 'shape', 'segment', 'option_type', 'expiry_month'];
+export const FACET_COLUMNS: FacetColumn[] = ['asset_class', 'sector', 'exchange', 'shape', 'segment', 'option_type', 'expiry_month'];
 
 export const FACET_TITLES: Record<FacetColumn, string> = {
   asset_class: 'Asset class',
@@ -9,6 +9,7 @@ export const FACET_TITLES: Record<FacetColumn, string> = {
   segment: 'Segment',
   option_type: 'Option type',
   expiry_month: 'Expiry month',
+  sector: 'Sector',
 };
 
 const SORTS: SearchParameters['sort'][] = ['relevance', 'name', 'expiry', 'strike'];

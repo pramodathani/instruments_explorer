@@ -28,7 +28,7 @@ export interface StatusDocument {
 }
 
 /** The facet columns the explorer can filter by. */
-export type FacetColumn = 'exchange' | 'asset_class' | 'shape' | 'segment' | 'option_type' | 'expiry_month';
+export type FacetColumn = 'exchange' | 'asset_class' | 'shape' | 'segment' | 'option_type' | 'expiry_month' | 'sector';
 
 /** One value of a facet and how many instruments have it. */
 export interface FacetValue {
@@ -49,6 +49,7 @@ export interface InstrumentRecord {
   underlying_symbol: string | null;
   display_name: string;
   company_name: string | null;
+  sector: string | null;
   expiry_date: string | null;
   strike_price: number | null;
   option_type: 'CE' | 'PE' | null;
@@ -404,4 +405,94 @@ export interface KnowledgeOverview {
   };
   sources: KnowledgeSource[];
   jobs: FetchJob[];
+}
+
+/** One screening condition the screener offers. */
+export interface ScreenerCondition {
+  key: string;
+  label: string;
+  description: string;
+  parameters: IndicatorParameterDescription[];
+}
+
+/** A screener figures run: its universe and progress. */
+export interface ScreenerRun {
+  run_id: string;
+  universe: string;
+  status: 'running' | 'done' | 'cancelled';
+  total: number;
+  done: number;
+  failed: number;
+  started_at: number;
+  finished_at: number | null;
+}
+
+/** The answer of /api/screener/setup. */
+export interface ScreenerSetup {
+  universes: {
+    key: string;
+    label: string;
+  }[];
+  conditions: ScreenerCondition[];
+  sortable: string[];
+  job: ScreenerRun | null;
+  last_runs: Record<string, ScreenerRun | null>;
+}
+
+/** One stock's stored figures. */
+export interface ScreenerRow {
+  instrument_id: string;
+  symbol: string;
+  name: string;
+  sector: string;
+  close: number | null;
+  change_1d: number | null;
+  change_5d: number | null;
+  change_21d: number | null;
+  change_63d: number | null;
+  change_252d: number | null;
+  from_high: number | null;
+  from_low: number | null;
+  rsi_14: number | null;
+  adx_14: number | null;
+  natr_14: number | null;
+  volume_ratio: number | null;
+  traded_value: number | null;
+  percent_b: number | null;
+  last_candle_date: string;
+}
+
+/** One sector of a screen's matches, for the heatmap. */
+export interface ScreenerSector {
+  sector: string;
+  count: number;
+  average_change: number | null;
+  stocks: {
+    instrument_id: string;
+    symbol: string;
+    name: string | null;
+    change_1d: number | null;
+    traded_value: number | null;
+  }[];
+}
+
+/** The answer of /api/screener/run. */
+export interface ScreenerAnswer {
+  universe: string;
+  members: number;
+  with_figures: number;
+  matched: number;
+  rows: ScreenerRow[];
+  sectors: ScreenerSector[];
+  sector_names: string[];
+  last_run: ScreenerRun | null;
+}
+
+/** What a screen asks for. */
+export interface ScreenerParameters {
+  universe: string;
+  conditions: string[];
+  sectors: string[];
+  sort: string;
+  descending: boolean;
 }

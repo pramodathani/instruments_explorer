@@ -1,12 +1,12 @@
 import { apiClient } from '../api/apiClient';
-import type { FetchJob, Quote } from '../api/types';
+import type { FetchJob, Quote, ScreenerRun } from '../api/types';
 import type { QuoteStore } from './quoteStore';
 
 /** A message the server sends over /api/live. */
 interface ServerMessage {
   type: string;
   quotes?: Quote[];
-  job?: FetchJob;
+  job?: FetchJob | ScreenerRun;
   message?: string;
 }
 
@@ -26,6 +26,7 @@ export class LiveSocket {
   private onLoggedOut: () => void = () => undefined;
   private readonly quoteStore: QuoteStore;
   private readonly jobListeners = new Set<(job: FetchJob) => void>();
+  private readonly screenerListeners = new Set<(run: ScreenerRun) => void>();
 
   /**
    * Creates the socket without connecting.
@@ -103,6 +104,18 @@ export class LiveSocket {
     };
   }
 
+  /**
+   * Listens for screener figures runs' progress.
+   * @param listener Called with the run after every change.
+   * @returns A function that stops listening.
+   */
+  onScreenerJob(listener: (run: ScreenerRun) => void): () => void {
+    this.screenerListeners.add(listener);
+    return () => {
+      this.screenerListeners.delete(listener);
+    };
+  }
+
   /** Opens the WebSocket and wires its events. */
   private connect(): void {
     const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -171,7 +184,11 @@ export class LiveSocket {
       this.quoteStore.update(message.quotes);
     } else if (message.type === 'fetch_job' && message.job !== undefined) {
       for (const listener of this.jobListeners) {
-        listener(message.job);
+        listener(message.job as FetchJob);
+      }
+    } else if (message.type === 'screener_job' && message.job !== undefined) {
+      for (const listener of this.screenerListeners) {
+        listener(message.job as ScreenerRun);
       }
     }
   }

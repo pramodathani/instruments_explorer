@@ -1,5 +1,9 @@
 import type {
   ChartResponse,
+  ScreenerAnswer,
+  ScreenerParameters,
+  ScreenerRun,
+  ScreenerSetup,
   CompanyProfile,
   FetchJob,
   InstrumentCompany,
@@ -416,6 +420,65 @@ export class ApiClient {
       credentials: 'same-origin',
     });
     return (await this.readJson(response)) as unknown as KnowledgeDocument;
+  }
+
+  /**
+   * Fetches the screener's universes, conditions and runs.
+   * @returns The setup.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchScreenerSetup(): Promise<ScreenerSetup> {
+    const response = await fetch('/api/screener/setup', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as ScreenerSetup;
+  }
+
+  /**
+   * Starts computing a universe's screener figures.
+   * @param universe The universe key.
+   * @returns The run's state.
+   * @throws ApiError when the index is not ready.
+   */
+  async refreshScreener(universe: string): Promise<ScreenerRun> {
+    const response = await fetch('/api/screener/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: JSON.stringify({
+        universe,
+      }),
+    });
+    return (await this.readJson(response)) as unknown as ScreenerRun;
+  }
+
+  /**
+   * Runs a screen.
+   * @param parameters The universe, conditions, sectors and order.
+   * @param signal Aborts the request when a newer one replaces it.
+   * @returns The matches and their sectors.
+   * @throws ApiError for an invalid condition.
+   */
+  async runScreen(parameters: ScreenerParameters, signal: AbortSignal): Promise<ScreenerAnswer> {
+    const query = new URLSearchParams();
+    query.set('universe', parameters.universe);
+    for (const condition of parameters.conditions) {
+      query.append('condition', condition);
+    }
+    for (const sector of parameters.sectors) {
+      query.append('sector', sector);
+    }
+    query.set('sort', parameters.sort);
+    query.set('descending', parameters.descending ? 'true' : 'false');
+    query.set('limit', '500');
+    const response = await fetch(`/api/screener/run?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as ScreenerAnswer;
   }
 
   /**
