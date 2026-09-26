@@ -13,7 +13,8 @@ export type IconName =
   | 'logout'
   | 'close'
   | 'send'
-  | 'settings';
+  | 'settings'
+  | 'expand';
 
 const PATHS: Record<IconName, string> = {
   overview: 'M3 3h7v7H3zM14 3h7v4h-7zM14 11h7v10h-7zM3 14h7v7H3z',
@@ -29,6 +30,7 @@ const PATHS: Record<IconName, string> = {
   logout: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10',
   close: 'M6 6l12 12M18 6 6 18',
   send: 'M4 12 20 4l-6 16-3-7z',
+  expand: 'M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7',
   settings: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
 };
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Outlet, useLocation } from 'react-router';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { ApiError, apiClient } from '../api/apiClient';
 import type { StatusDocument } from '../api/types';
+import { chatController } from '../assistant/chatController';
 import { ChatPanel } from '../assistant/ChatPanel';
 import { AmbientBackground } from '../components/AmbientBackground';
 import { liveSocket } from '../live/liveServices';
@@ -22,6 +23,7 @@ interface AppLayoutProps {
 export function AppLayout(props: AppLayoutProps) {
   const { onLoggedOut } = props;
   const location = useLocation();
+  const navigate = useNavigate();
   const [chatOpen, setChatOpen] = useState(false);
   const [status, setStatus] = useState<StatusDocument | null>(null);
 
@@ -44,6 +46,16 @@ export function AppLayout(props: AppLayoutProps) {
     liveSocket.start(onLoggedOut);
     return () => liveSocket.stop();
   }, [onLoggedOut]);
+
+  useEffect(() => {
+    chatController.setNavigator((path) => {
+      if (window.location.pathname === '/chat') {
+        setChatOpen(true);
+      }
+      void navigate(path);
+    });
+    return () => chatController.setNavigator(null);
+  }, [navigate]);
 
   const closeChat = useCallback(() => setChatOpen(false), []);
   const openChat = useCallback(() => setChatOpen(true), []);

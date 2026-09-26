@@ -31,6 +31,13 @@ const ScreenerPage = lazy(async () => {
   };
 });
 
+const ChatPage = lazy(async () => {
+  const module = await import('./assistant/ChatPage');
+  return {
+    default: module.ChatPage,
+  };
+});
+
 const UniversePage = lazy(async () => {
   const module = await import('./universe/UniversePage');
   return {
@@ -88,6 +95,14 @@ export function App() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="chat"
+            element={
+              <Suspense fallback={<p className="muted">Loading the chat…</p>}>
+                <ChatPage />
+              </Suspense>
+            }
+          />
           <Route
             path="screener"
             element={

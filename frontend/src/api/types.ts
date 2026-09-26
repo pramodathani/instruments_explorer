@@ -524,3 +524,115 @@ export interface UniverseMap {
   mapping_date: string;
   include_options: boolean;
 }
+
+/** A chat conversation in the list. */
+export interface ChatConversation {
+  conversation_id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+/** An instruction for the page that a tool gives: open a view, or offer to fetch company knowledge. */
+export type ChatUiAction =
+  | {
+      kind: 'navigate';
+      path: string;
+      label: string;
+    }
+  | {
+      kind: 'confirm_fetch';
+      instrument_id: string;
+      company_name: string | null;
+      symbol: string | null;
+      reason: string;
+    };
+
+/** One stored piece of a conversation, as the chat panel draws it. */
+export type ChatStoredItem =
+  | {
+      kind: 'user';
+      text: string;
+      created_at: number | null;
+    }
+  | {
+      kind: 'text' | 'thinking';
+      text: string;
+    }
+  | {
+      kind: 'tool_call';
+      id: string;
+      name: string;
+      input: unknown;
+    }
+  | {
+      kind: 'tool_result';
+      id: string;
+      summary: string;
+      is_error: boolean;
+      ui_action: ChatUiAction | null;
+    };
+
+/** A conversation with its items. */
+export interface ChatTranscriptDocument {
+  conversation: ChatConversation;
+  items: ChatStoredItem[];
+}
+
+/** One event of a streamed answer. */
+export type ChatStreamEvent =
+  | {
+      type: 'text_start' | 'thinking_start' | 'done';
+    }
+  | {
+      type: 'text' | 'thinking' | 'error' | 'refusal';
+      text: string;
+    }
+  | {
+      type: 'title';
+      title: string;
+    }
+  | {
+      type: 'tool_call';
+      id: string;
+      name: string;
+      input?: unknown;
+    }
+  | {
+      type: 'tool_result';
+      id: string;
+      summary: string;
+      is_error: boolean;
+    }
+  | {
+      type: 'ui_action';
+      id: string;
+      action: ChatUiAction;
+    }
+  | ({
+      type: 'usage';
+      model: string;
+      today: number;
+      limit: number;
+    } & ChatTokenCounts);
+
+/** Token counts of one answer or one day. */
+export interface ChatTokenCounts {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+}
+
+/** Today's token use against the daily limit. */
+export interface ChatUsage extends ChatTokenCounts {
+  day: string;
+  responses: number;
+  billable: number;
+  limit: number;
+  model: string;
+  effort: string;
+}

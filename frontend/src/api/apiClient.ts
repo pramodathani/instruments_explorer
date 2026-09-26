@@ -22,6 +22,10 @@ import type {
   SearchResponse,
   StatusDocument,
   UniverseMap,
+  ChatConversation,
+  ChatStreamEvent,
+  ChatTranscriptDocument,
+  ChatUsage,
 } from './types';
 
 const REQUESTED_WITH_HEADER = 'X-Requested-With';
@@ -503,6 +507,157 @@ export class ApiClient {
    * @returns The parsed body.
    * @throws ApiError when the status is not OK.
    */
+  /**
+   * Lists the latest chat conversations.
+   * @returns The conversations, most recently used first.
+   * @throws ApiError when the session has ended.
+   */
+  async listConversations(): Promise<ChatConversation[]> {
+    const response = await fetch('/api/chat/conversations', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as ChatConversation[];
+  }
+
+  /**
+   * Starts an empty conversation.
+   * @returns The conversation.
+   * @throws ApiError when the session has ended.
+   */
+  async createConversation(): Promise<ChatConversation> {
+    const response = await fetch('/api/chat/conversations', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+    });
+    return (await this.readJson(response)) as unknown as ChatConversation;
+  }
+
+  /**
+   * Fetches a conversation with the items the chat draws.
+   * @param conversationId The conversation's id.
+   * @returns The conversation and its items.
+   * @throws ApiError with 404 for a deleted conversation.
+   */
+  async fetchConversation(conversationId: string): Promise<ChatTranscriptDocument> {
+    const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as ChatTranscriptDocument;
+  }
+
+  /**
+   * Renames a conversation.
+   * @param conversationId The conversation's id.
+   * @param title The new title.
+   * @returns The renamed conversation.
+   * @throws ApiError with 404 for a deleted conversation.
+   */
+  async renameConversation(conversationId: string, title: string): Promise<ChatConversation> {
+    const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: JSON.stringify({
+        title,
+      }),
+    });
+    return (await this.readJson(response)) as unknown as ChatConversation;
+  }
+
+  /**
+   * Deletes a conversation and its messages.
+   * @param conversationId The conversation's id.
+   * @throws ApiError with 404 for a conversation already deleted.
+   */
+  async deleteConversation(conversationId: string): Promise<void> {
+    const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: {
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+    });
+    await this.readJson(response);
+  }
+
+  /**
+   * Fetches today's token use against the daily limit.
+   * @returns The usage.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchChatUsage(): Promise<ChatUsage> {
+    const response = await fetch('/api/chat/usage', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as ChatUsage;
+  }
+
+  /**
+   * Sends a chat message and reads the streamed answer, handing each event over as it arrives.
+   * @param conversationId The conversation's id.
+   * @param text What the user wrote.
+   * @param page The page the user is on.
+   * @param page.path The page's address.
+   * @param page.title The page's heading.
+   * @param onEvent Called with every event.
+   * @param signal Stops reading the answer.
+   * @throws ApiError when the server refuses the message, such as 503 without an API key.
+   */
+  async sendChatMessage(
+    conversationId: string,
+    text: string,
+    page: {
+      path: string;
+      title: string;
+    },
+    onEvent: (event: ChatStreamEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: JSON.stringify({
+        text,
+        page,
+      }),
+      signal,
+    });
+    if (!response.ok || response.body === null) {
+      await this.readJson(response);
+      return;
+    }
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += value;
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const chunk = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('data: ')) {
+            onEvent(JSON.parse(line.slice(6)) as ChatStreamEvent);
+          }
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  }
+
   private async readJson(response: Response): Promise<Record<string, unknown>> {
     let body: Record<string, unknown> = {};
     try {
