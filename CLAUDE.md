@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 3 are done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 4 are done:
 
 | Phase | Contents |
 |---|---|
@@ -65,10 +65,17 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - The route reads extra warm-up history so every indicator has values from the chart's first candle, then trims candles and lines back to the requested range.
   - Each indicator is its own class in its family's module (`moving_averages.py`, `volatility.py`, `trend.py`, `momentum.py`, `volume.py`, `patterns.py`), over a shallow `BaseIndicator`. `IndicatorCatalogue` lists them explicitly; add a new indicator there.
   - ubi stores only daily candles for most instruments; intraday history exists only where someone loaded it by hand.
+- **Derivatives** (`derivatives/`, `routes/derivative_routes.py`, `market/quote_snapshot_reader.py`).
+  - `/api/derivatives/underlyings`, `/expiries`, `/chain` and `/surface` take `exchange` and `underlying`, plus `expiry` for the chain.
+  - `OptionChainBuilder` takes an underlying's contracts from the index and reads all their quotes at once from ubi's `unified:quotes:live` hash through `QuoteSnapshotReader`, never one REST call per contract.
+  - `BlackModel` and `ImpliedVolatilitySolver` (bisection) give implied volatility and the Greeks. The forward is the same-expiry future's price, else the spot carried forward at `INSTRUMENTS_EXPLORER_RISK_FREE_RATE`, else the nearest future. `ExpiryClock` counts to 15:30 India time on the expiry date.
+  - Implied volatility uses the mid of a tight bid and offer, or the last price only when the contract traded today. An untraded contract's last price is an old close and gives false volatility.
+  - The surface's strikes come from the nearest expiry within 8% of its forward; gaps are interpolated, never extrapolated, and lone spikes are dropped.
 - **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
   - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
+  - The derivatives page (`derivatives/`) keeps the underlying, expiry, tab and strike range in the page address and refreshes the chain every five seconds while the tab is visible. Its 3D surface is `three/surfaceScene.ts`.
   - The chart (`charts/`) is Highcharts Stock, loaded lazily with the instrument page's `ChartPanel`. Its interval, period, adjustment, 2D/3D view and indicators live in the page address. `ChartOptionsBuilder` lays out the price pane, the volume pane and one pane per panel indicator. `LiveCandleMerger` adds today's candle from the live quote when ubi's stored history stops before today.
   - Import the React wrapper as `import { HighchartsReact } from 'highcharts-react-official'`. The default import resolves to the CommonJS module object under Vite and crashes React with error 130.
   - Highcharts series and axes share one id namespace, so axes are named `price-axis`, `volume-axis` and `panel-axis-<indicator id>`.
