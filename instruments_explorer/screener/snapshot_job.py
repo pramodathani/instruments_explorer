@@ -14,12 +14,13 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from tradingmachine.ubi_client import exceptions
+
 from instruments_explorer.market import candle_series
 from instruments_explorer.screener import screener_universe
 from instruments_explorer.screener import stock_metrics
 from instruments_explorer.storage import screener_repository
-from instruments_explorer.unified_broker_interface import exceptions
-from instruments_explorer.unified_broker_interface import rest_client
+from instruments_explorer.unified_broker_interface import catalogue_gateway
 from instruments_explorer.utilities import clock
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class ScreenerSnapshotJob:
     def __init__(
         self,
         universe: screener_universe.ScreenerUniverse,
-        client: rest_client.UnifiedBrokerInterfaceClient,
+        client: catalogue_gateway.CatalogueGateway,
         repository: screener_repository.ScreenerRepository,
         announce: Callable[[dict[str, Any]], None],
         time_source: clock.SystemClock,
@@ -47,7 +48,7 @@ class ScreenerSnapshotJob:
 
         Args:
             universe (screener_universe.ScreenerUniverse): Lists the stocks.
-            client (rest_client.UnifiedBrokerInterfaceClient): Reads candles from UBI.
+            client (catalogue_gateway.CatalogueGateway): Reads candles from UBI.
             repository (screener_repository.ScreenerRepository): Stores figures and runs.
             announce (Callable[[dict[str, Any]], None]): Called with a progress message for open browsers.
             time_source (clock.SystemClock): The source of the current time.

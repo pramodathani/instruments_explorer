@@ -11,10 +11,8 @@ import pymongo.errors
 import redis
 from anthropic import _models as anthropic_models
 from anthropic.types.beta import parsed_beta_message
-from tradingmachine.ubi_client import exceptions as tradingmachine_exceptions
+from tradingmachine.ubi_client import exceptions
 from tradingmachine.ubi_client import prices_document
-
-from instruments_explorer.unified_broker_interface import exceptions
 
 
 class FixedClock:
@@ -736,7 +734,7 @@ class FakeLiveQuoteSource:
         """
         self.reads.append(list(instrument_ids))
         if self.failing:
-            raise tradingmachine_exceptions.UnreachableError(
+            raise exceptions.UnreachableError(
                 'UBI Redis could not be read for live quotes: down in this test'
             )
         found = {}
@@ -919,7 +917,7 @@ class FakeTradingmachineCatalogue:
         """
         answer = self.documents.get((route, instrument_id))
         if answer is None:
-            raise tradingmachine_exceptions.NotFoundError(
+            raise exceptions.NotFoundError(
                 f'Unknown instrument_id: {instrument_id}',
                 status_code=404,
             )

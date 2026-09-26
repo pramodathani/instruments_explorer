@@ -15,8 +15,6 @@ _SOURCE_DIRECTORY = (
     Path(__file__).resolve().parent.parent / 'instruments_explorer'
 )
 _FILES_ALLOWED_TO_USE_STORES = [
-    'market/live_quote_reader.py',
-    'market/quote_snapshot_reader.py',
     'unified_broker_interface/access_token_provider.py',
     'unified_broker_interface/mongo_reader.py',
     'unified_broker_interface/redis_reader.py',

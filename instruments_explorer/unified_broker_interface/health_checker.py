@@ -2,15 +2,17 @@
 
 Typical usage example:
 
-  checker = HealthChecker(client, provider, clock)
+  checker = HealthChecker(gateway, token_source, clock)
   report = await checker.check()
 """
 
+import asyncio
 from typing import Any
 
-from instruments_explorer.unified_broker_interface import access_token_provider
-from instruments_explorer.unified_broker_interface import exceptions
-from instruments_explorer.unified_broker_interface import rest_client
+from tradingmachine.ubi_client import exceptions
+from tradingmachine.ubi_stores import stored_login_token_source
+
+from instruments_explorer.unified_broker_interface import catalogue_gateway
 from instruments_explorer.utilities import clock
 
 
@@ -19,19 +21,19 @@ class HealthChecker:
 
     def __init__(
         self,
-        client: rest_client.UnifiedBrokerInterfaceClient,
-        token_provider: access_token_provider.AccessTokenProvider,
+        client: catalogue_gateway.CatalogueGateway,
+        token_source: stored_login_token_source.StoredLoginTokenSource,
         time_source: clock.SystemClock,
     ):
         """Creates the checker.
 
         Args:
-            client (rest_client.UnifiedBrokerInterfaceClient): Calls UBI's greeting route.
-            token_provider (access_token_provider.AccessTokenProvider): Reads UBI's stored login.
+            client (catalogue_gateway.CatalogueGateway): Calls UBI's greeting route.
+            token_source (stored_login_token_source.StoredLoginTokenSource): tradingmachine's token source, which reads UBI's stored login.
             time_source (clock.SystemClock): The source of the current time.
         """
         self._client = client
-        self._token_provider = token_provider
+        self._token_source = token_source
         self._time_source = time_source
 
     async def check(self) -> dict[str, Any]:
@@ -50,7 +52,7 @@ class HealthChecker:
             }
         detail = 'REST API answering'
         try:
-            login = await self._token_provider.stored_login()
+            login = await asyncio.to_thread(self._token_source.stored_login)
         except exceptions.UnifiedBrokerInterfaceError:
             login = None
         if login is not None and login.is_usable(self._time_source.now(), 0):

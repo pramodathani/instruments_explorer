@@ -8,6 +8,7 @@ import fastapi.testclient
 import httpx
 import pytest
 import starlette.websockets
+from tradingmachine.ubi_client import exceptions
 
 from instruments_explorer import application
 from instruments_explorer.configuration import settings
@@ -35,7 +36,6 @@ from instruments_explorer.storage import conversation_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import screener_repository
-from instruments_explorer.unified_broker_interface import exceptions
 from instruments_explorer.universe import universe_service
 from tests import fakes
 

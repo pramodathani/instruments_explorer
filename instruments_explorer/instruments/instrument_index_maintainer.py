@@ -16,10 +16,11 @@ import sqlite3
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from tradingmachine.ubi_client import exceptions
+
 from instruments_explorer.instruments import instrument_index
 from instruments_explorer.instruments import instrument_index_builder
-from instruments_explorer.unified_broker_interface import exceptions
-from instruments_explorer.unified_broker_interface import rest_client
+from instruments_explorer.unified_broker_interface import catalogue_gateway
 from instruments_explorer.utilities import clock
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class InstrumentIndexMaintainer:
 
     def __init__(
         self,
-        client: rest_client.UnifiedBrokerInterfaceClient,
+        client: catalogue_gateway.CatalogueGateway,
         builder: instrument_index_builder.InstrumentIndexBuilder,
         time_source: clock.SystemClock,
         check_interval_seconds: float = 600.0,
@@ -48,7 +49,7 @@ class InstrumentIndexMaintainer:
         """Creates the maintainer without opening anything.
 
         Args:
-            client (rest_client.UnifiedBrokerInterfaceClient): Reads UBI's mapping date.
+            client (catalogue_gateway.CatalogueGateway): Reads UBI's mapping date.
             builder (instrument_index_builder.InstrumentIndexBuilder): Builds index files.
             time_source (clock.SystemClock): The source of today's date.
             check_interval_seconds (float): How long to wait between checks, in seconds.
