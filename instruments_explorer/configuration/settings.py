@@ -36,6 +36,11 @@ class Settings(pydantic_settings.BaseSettings):
         chromadb_host: The host of the project's own ChromaDB.
         chromadb_port: The port of the project's own ChromaDB.
         store_timeout_seconds: How long a request to MongoDB or ChromaDB may take, in seconds.
+        ubi_request_timeout_seconds: How long a request to UBI's REST API, Redis or MongoDB may take, in seconds.
+        ubi_may_connect: Whether this process may call UBI's connect route when no usable token is stored.
+        ubi_connect_cooldown_seconds: The shortest time between two connects to UBI, in seconds.
+        index_check_interval_seconds: How often UBI's mapping date is checked for a new catalogue, in seconds.
+        live_quote_interval_seconds: How often the watched instruments' quotes are read from UBI's Redis, in seconds.
         anthropic_api_key: The Claude API key for the chat assistant, or an empty string while it is not configured.
         claude_model: The Claude model the chat assistant uses.
         claude_effort: How much effort the chat assistant's model spends on each turn.
@@ -66,6 +71,11 @@ class Settings(pydantic_settings.BaseSettings):
     chromadb_host: str = '127.0.0.1'
     chromadb_port: int = 3004
     store_timeout_seconds: float = pydantic.Field(default=5.0, gt=0)
+    ubi_request_timeout_seconds: float = pydantic.Field(default=30.0, gt=0)
+    ubi_may_connect: bool = True
+    ubi_connect_cooldown_seconds: float = pydantic.Field(default=60.0, gt=0)
+    index_check_interval_seconds: float = pydantic.Field(default=600.0, gt=0)
+    live_quote_interval_seconds: float = pydantic.Field(default=0.5, gt=0)
     anthropic_api_key: str = ''
     claude_model: str = 'claude-opus-5-5'
     claude_effort: Literal[
