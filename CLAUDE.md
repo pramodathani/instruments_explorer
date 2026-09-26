@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 and 2 are done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 3 are done:
 
 | Phase | Contents |
 |---|---|
@@ -59,13 +59,23 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - `InstrumentIndexMaintainer` checks ubi's mapping date every ten minutes and swaps in a new index when it changes.
   - Filter column names come only from `FACET_COLUMNS`, and every value is a bound parameter.
   - ubi has no bulk route for lot sizes or company names, so they are not filterable. Lot size comes from ubi's `details` on the instrument page, and company names join the index in phase 5.
+- **Charts and indicators** (`indicators/`, `routes/chart_routes.py`, `market/candle_series.py`).
+  - `GET /api/instruments/{id}/chart?interval=&days=&adjusted=&indicator=rsi:14&indicator=macd:12:26:9` reads candles from ubi's `prices` route and computes TA-Lib indicators on the server.
+  - An indicator request is its key followed by colon-separated parameters in the indicator's order; parameters left out take their defaults.
+  - The route reads extra warm-up history so every indicator has values from the chart's first candle, then trims candles and lines back to the requested range.
+  - Each indicator is its own class in its family's module (`moving_averages.py`, `volatility.py`, `trend.py`, `momentum.py`, `volume.py`, `patterns.py`), over a shallow `BaseIndicator`. `IndicatorCatalogue` lists them explicitly; add a new indicator there.
+  - ubi stores only daily candles for most instruments; intraday history exists only where someone loaded it by hand.
 - **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
   - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
+  - The chart (`charts/`) is Highcharts Stock, loaded lazily with the instrument page's `ChartPanel`. Its interval, period, adjustment, 2D/3D view and indicators live in the page address. `ChartOptionsBuilder` lays out the price pane, the volume pane and one pane per panel indicator. `LiveCandleMerger` adds today's candle from the live quote when ubi's stored history stops before today.
+  - Import the React wrapper as `import { HighchartsReact } from 'highcharts-react-official'`. The default import resolves to the CommonJS module object under Vite and crashes React with error 130.
+  - Highcharts series and axes share one id namespace, so axes are named `price-axis`, `volume-axis` and `panel-axis-<indicator id>`.
   - Behaviour lives in classes (`ApiClient`, `ThemeController`, `MotionController`, `SceneController` and its subclasses). React components are thin.
   - `AppLayout` wraps every page with the three.js backdrop, the header, a page entrance animation and the chat panel. It shares `/api/status` with pages through the router's outlet context (`layout/layoutContext.ts`).
 - **three.js.**
+  - `three/candleScene.ts` draws the chart's 3D view: instanced candle bodies, wicks, volume bars and a 20-candle average, with OrbitControls.
   - Every scene subclasses `three/sceneController.ts`, which owns the renderer, camera, animation loop, pause-while-hidden and disposal.
   - Scenes are imported with dynamic `import()` so three.js loads after the first paint.
   - The animation intensity (`maximal`, `reduced`, `off`) comes from `MotionController`, is shown on `<html data-motion>`, and must be respected by every new animation, in CSS as well as in scenes.
