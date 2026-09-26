@@ -185,7 +185,7 @@ class KnowledgeService:
         """Counts what is stored.
 
         Returns:
-            dict[str, Any]: "listed" and "fetched" companies, "documents", and "chunks" (None when ChromaDB cannot be reached).
+            dict[str, Any]: "listed", "classified" and "fetched" companies, "documents", and "chunks" (None when ChromaDB cannot be reached).
         """
         companies = await self._companies.counts()
         try:
@@ -194,6 +194,7 @@ class KnowledgeService:
             chunks = None
         return {
             'listed': companies['listed'],
+            'classified': companies['classified'],
             'fetched': companies['fetched'],
             'documents': await self._documents.count(),
             'chunks': chunks,

@@ -22,10 +22,16 @@ from instruments_explorer.knowledge import listing_importer
 from instruments_explorer.knowledge import polite_client
 from instruments_explorer.market import live_quote_hub
 from instruments_explorer.routes import knowledge_routes
+from instruments_explorer.routes import screener_routes
+from instruments_explorer.screener import screener_service
+from instruments_explorer.screener import screener_universe
+from instruments_explorer.screener import snapshot_job
+from instruments_explorer.screener.conditions import condition_catalogue
 from instruments_explorer.security import authenticator
 from instruments_explorer.storage import company_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
+from instruments_explorer.storage import screener_repository
 from instruments_explorer.unified_broker_interface import exceptions
 from tests import fakes
 
@@ -52,6 +58,8 @@ class RouteParts:
         companies: The company repository over a fake database.
         vector_store: The stand-in vector store.
         fetcher: The one stand-in knowledge fetcher.
+        screener_repository: The screener repository over the fake database.
+        screener_job: The screener snapshot job.
     """
 
     def __init__(
@@ -145,6 +153,32 @@ class RouteParts:
             jobs,
             self.maintainer.rebuild,
         )
+        self.screener_repository = screener_repository.ScreenerRepository(
+            database
+        )
+        universe = screener_universe.ScreenerUniverse(
+            self.maintainer,
+            self.companies,
+        )
+        catalogue = condition_catalogue.ConditionCatalogue()
+        self.screener_job = snapshot_job.ScreenerSnapshotJob(
+            universe,
+            self.catalogue_client,
+            self.screener_repository,
+            self.hub.broadcast_event,
+            time_source,
+        )
+        screener_parts = screener_routes.ScreenerParts(
+            universe,
+            self.screener_job,
+            screener_service.ScreenerService(
+                universe,
+                self.screener_repository,
+                catalogue,
+            ),
+            catalogue,
+            self.screener_repository,
+        )
         web_application = explorer.create_web_application(
             authenticator.Authenticator(_HASH, time_source),
             [
@@ -156,6 +190,7 @@ class RouteParts:
             self.hub,
             chain_builder,
             knowledge_parts,
+            screener_parts,
             with_lifespan=False,
         )
         self.client = fastapi.testclient.TestClient(web_application)
@@ -326,6 +361,7 @@ class TestInstrumentRoutes:
             'segment',
             'option_type',
             'expiry_month',
+            'sector',
         }
 
     def test_search_refuses_a_bad_sort(self, tmp_path: Path) -> None:
@@ -927,9 +963,147 @@ class TestKnowledgeRoutes:
         body = parts.client.get('/api/knowledge/overview').json()
         assert body['counts'] == {
             'listed': 0,
+            'classified': 0,
             'fetched': 0,
             'documents': 0,
             'chunks': 0,
         }
         assert body['sources'][0]['key'] == 'screener'
         assert body['jobs'] == []
+
+
+class TestScreenerRoutes:
+    """Tests for the /api/screener routes."""
+
+    def _prepare(self, parts: RouteParts) -> None:
+        """Lists RELIANCE in the Nifty Total Market with 300 candles of history.
+
+        Args:
+            parts (RouteParts): The test components.
+        """
+        asyncio.run(
+            parts.companies.set_index_industries(
+                [
+                    {
+                        'company_key': 'INE002A01018',
+                        'name': 'Reliance Industries Ltd.',
+                        'industry': 'Oil Gas & Consumable Fuels',
+                        'symbol': 'RELIANCE',
+                        'isin': 'INE002A01018',
+                    },
+                ],
+                1.0,
+            )
+        )
+        parts.catalogue_client.prices_by_id[fakes.RELIANCE_NSE_ID] = (
+            fakes.PricesMaker().document(300)
+        )
+
+    def test_setup(self, tmp_path: Path) -> None:
+        """Checks the universes and conditions.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        body = parts.client.get('/api/screener/setup').json()
+        keys = []
+        for universe in body['universes']:
+            keys.append(universe['key'])
+        assert keys == [
+            'total_market',
+            'all_nse',
+        ]
+        assert body['conditions'][0]['key'] == 'rsi'
+        assert body['job'] is None
+
+    def test_refresh_then_screen(self, tmp_path: Path) -> None:
+        """Checks that a refresh computes figures that a screen then finds.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        self._prepare(parts)
+        parts.log_in()
+        response = parts.client.post(
+            '/api/screener/refresh',
+            json={
+                'universe': 'total_market',
+            },
+            headers=_HEADERS,
+        )
+        assert response.json()['total'] == 1
+        state = parts.screener_job.state
+        for _ in range(200):
+            if state['status'] != 'running':
+                break
+            asyncio.run(asyncio.sleep(0.01))
+        body = parts.client.get(
+            '/api/screener/run?condition=rsi:0:100&sort=symbol&descending=false'
+        ).json()
+        assert body['matched'] == 1
+        assert body['rows'][0]['symbol'] == 'RELIANCE'
+        assert body['sectors'][0]['sector'] == 'Oil Gas & Consumable Fuels'
+
+    def test_refresh_needs_the_header(self, tmp_path: Path) -> None:
+        """Checks the application header on the refresh route.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.post('/api/screener/refresh', json={})
+        assert response.status_code == 403
+
+    def test_bad_condition(self, tmp_path: Path) -> None:
+        """Checks that an unknown condition gets 400.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.get('/api/screener/run?condition=magic')
+        assert response.status_code == 400
+
+
+class TestSectorFilter:
+    """Tests for the sector filter on the search route."""
+
+    def test_sector_filter_is_applied(self, tmp_path: Path) -> None:
+        """Checks that choosing a sector narrows the results, not only the counts.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        asyncio.run(
+            parts.companies.set_index_industries(
+                [
+                    {
+                        'company_key': 'INE002A01018',
+                        'name': 'Reliance Industries Ltd.',
+                        'industry': 'Oil Gas & Consumable Fuels',
+                        'symbol': 'RELIANCE',
+                        'isin': 'INE002A01018',
+                    },
+                ],
+                1.0,
+            )
+        )
+        parts.maintainer._name_source = parts.companies.details_by_symbol
+        asyncio.run(parts.maintainer.rebuild())
+        parts.log_in()
+        body = parts.client.get(
+            '/api/instruments/search?sector=Oil%20Gas%20%26%20Consumable%20Fuels'
+        ).json()
+        names = set()
+        for result in body['results']:
+            names.add(result['display_name'])
+        assert names == {
+            'RELIANCE',
+            'RELIANCE 27 OCT 2026 FUT',
+        }

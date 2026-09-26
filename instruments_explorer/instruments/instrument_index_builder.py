@@ -24,7 +24,7 @@ from instruments_explorer.unified_broker_interface import rest_client
 from instruments_explorer.utilities import clock
 
 _LOGGER = logging.getLogger(__name__)
-SCHEMA_VERSION = '2'
+SCHEMA_VERSION = '3'
 _FILE_PREFIX = 'instruments-'
 _FILE_SUFFIX = '.sqlite'
 
@@ -45,6 +45,7 @@ _SCHEMA = [
         root_key TEXT NOT NULL,
         display_name TEXT NOT NULL,
         company_name TEXT,
+        sector TEXT,
         expiry_date TEXT,
         expiry_month TEXT,
         strike_price REAL,
@@ -73,6 +74,7 @@ _FINISHING_STATEMENTS = [
     'CREATE INDEX instruments_by_segment ON instruments (segment)',
     'CREATE INDEX instruments_by_shape ON instruments (shape)',
     'CREATE INDEX instruments_by_expiry_month ON instruments (expiry_month)',
+    'CREATE INDEX instruments_by_sector ON instruments (sector)',
     'CREATE INDEX instruments_by_underlying ON instruments (underlying_symbol, expiry_date, strike_price)',
     'CREATE INDEX instruments_by_root ON instruments (root_key)',
 ]
@@ -92,13 +94,14 @@ _INSERT_INSTRUMENT = """
         root_key,
         display_name,
         company_name,
+        sector,
         expiry_date,
         expiry_month,
         strike_price,
         option_type,
         exchange_rank,
         shape_rank
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 _INSERT_SEARCH_TEXT = (
     'INSERT INTO instrument_search (rowid, search_text) VALUES (?, ?)'
@@ -134,7 +137,7 @@ class InstrumentIndexBuilder:
         self._namer = instrument_namer.InstrumentNamer()
         self._text_builder = search_text_builder.SearchTextBuilder()
         self._seen_ids = set()
-        self._company_names = {}
+        self._company_details = {}
 
     def path_for(self, mapping_date: str) -> Path:
         """Finds the index file of a mapping date.
@@ -166,12 +169,12 @@ class InstrumentIndexBuilder:
 
     async def build(
         self,
-        company_names: dict[str, str] | None = None,
+        company_details: dict[str, dict[str, str | None]] | None = None,
     ) -> tuple[Path, str]:
         """Downloads the catalogue and writes its index file.
 
         Args:
-            company_names (dict[str, str] | None): Company names by trading symbol, given to shares and to the derivatives on them so they can be found by name, or None for none.
+            company_details (dict[str, dict[str, str | None]] | None): Company "name" and "sector" by trading symbol, given to shares and to the derivatives on them so they can be found by name and filtered by sector, or None for none.
 
         Returns:
             tuple[Path, str]: A tuple (path of the new index file, mapping date).
@@ -189,7 +192,7 @@ class InstrumentIndexBuilder:
         temporary_path.unlink(missing_ok=True)
         self.stored_count = 0
         self._seen_ids = set()
-        self._company_names = company_names or {}
+        self._company_details = company_details or {}
         connection = await asyncio.to_thread(
             self._create_database,
             temporary_path,
@@ -291,7 +294,7 @@ class InstrumentIndexBuilder:
             instrument_row = self._instrument_row(row_number, record)
             instrument_rows.append(instrument_row)
             search_text = self._text_builder.build(record)
-            company_name = self._company_name(record)
+            company_name = self._company_detail(record, 'name')
             if company_name:
                 search_text = f'{search_text} {company_name.lower()}'
             search_rows.append(
@@ -350,7 +353,8 @@ class InstrumentIndexBuilder:
                 record.get('strike_price'),
                 record.get('option_type'),
             ),
-            self._company_name(record),
+            self._company_detail(record, 'name'),
+            self._company_detail(record, 'sector'),
             expiry_date,
             expiry_month,
             record.get('strike_price'),
@@ -359,14 +363,15 @@ class InstrumentIndexBuilder:
             self._classifier.shape_rank(shape),
         )
 
-    def _company_name(self, record: dict[str, Any]) -> str | None:
-        """Finds the company name of a share or of a derivative on a share.
+    def _company_detail(self, record: dict[str, Any], field: str) -> str | None:
+        """Finds the company name or sector of a share or of a derivative on a share.
 
         Args:
             record (dict[str, Any]): The instrument's identity document.
+            field (str): "name" or "sector".
 
         Returns:
-            str | None: The company's name, or None for anything that is not a company's share or a derivative on one.
+            str | None: The value, or None for anything that is not a company's share or a derivative on one, or when the value is unknown.
         """
         bare_segment = self._classifier.bare_segment(
             record['exchange'],
@@ -382,7 +387,10 @@ class InstrumentIndexBuilder:
         root_name = (
             record.get('underlying_symbol') or record.get('symbol') or ''
         )
-        return self._company_names.get(root_name)
+        details = self._company_details.get(root_name)
+        if details is None:
+            return None
+        return details.get(field)
 
     def _finish_database(
         self,

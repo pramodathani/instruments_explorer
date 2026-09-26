@@ -122,6 +122,7 @@ class InstrumentRoutes:
         segment: FilterValues = None,
         option_type: FilterValues = None,
         expiry_month: FilterValues = None,
+        sector: FilterValues = None,
         strike_minimum: float | None = None,
         strike_maximum: float | None = None,
         sort: str = 'relevance',
@@ -140,6 +141,7 @@ class InstrumentRoutes:
             segment (FilterValues): Segments to keep.
             option_type (FilterValues): Option types to keep.
             expiry_month (FilterValues): Expiry months to keep, as "YYYY-MM".
+            sector (FilterValues): Company sectors to keep.
             strike_minimum (float | None): The lowest strike to keep.
             strike_maximum (float | None): The highest strike to keep.
             sort (str): "relevance", "name", "expiry" or "strike".
@@ -160,6 +162,7 @@ class InstrumentRoutes:
             'segment': segment or [],
             'option_type': option_type or [],
             'expiry_month': expiry_month or [],
+            'sector': sector or [],
         }
         try:
             request = instrument_index.SearchRequest(

@@ -42,7 +42,8 @@ class InstrumentIndexMaintainer:
         builder: instrument_index_builder.InstrumentIndexBuilder,
         time_source: clock.SystemClock,
         check_interval_seconds: float = 600.0,
-        name_source: Callable[[], Awaitable[dict[str, str]]] | None = None,
+        name_source: Callable[[], Awaitable[dict[str, dict[str, str | None]]]]
+        | None = None,
     ):
         """Creates the maintainer without opening anything.
 
@@ -51,7 +52,7 @@ class InstrumentIndexMaintainer:
             builder (instrument_index_builder.InstrumentIndexBuilder): Builds index files.
             time_source (clock.SystemClock): The source of today's date.
             check_interval_seconds (float): How long to wait between checks, in seconds.
-            name_source (Callable[[], Awaitable[dict[str, str]]] | None): Reads company names by symbol before each build, or None to build without names.
+            name_source (Callable[[], Awaitable[dict[str, dict[str, str | None]]]] | None): Reads company names and sectors by symbol before each build, or None to build without them.
         """
         self.check_interval_seconds = check_interval_seconds
         self.current_index = None
@@ -119,7 +120,7 @@ class InstrumentIndexMaintainer:
                 _LOGGER.warning('Instrument index refresh failed: %s', error)
 
     async def rebuild(self) -> None:
-        """Builds the index again even though the mapping date has not changed, such as after company names were imported."""
+        """Builds the index again even though the mapping date has not changed, such as after company names or sectors were imported."""
         self._rebuild_requested = True
         await self.refresh()
 

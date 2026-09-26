@@ -141,9 +141,15 @@ class TestRepositories:
                 1.0,
             )
         )
-        assert asyncio.run(companies.names_by_symbol()) == {
-            'RELIANCE': 'Reliance Industries Limited',
-            'INFY': 'Infosys Limited',
+        assert asyncio.run(companies.details_by_symbol()) == {
+            'RELIANCE': {
+                'name': 'Reliance Industries Limited',
+                'sector': None,
+            },
+            'INFY': {
+                'name': 'Infosys Limited',
+                'sector': None,
+            },
         }
         found = asyncio.run(companies.search('relia', 10))
         assert [company['symbol'] for company in found] == [
@@ -475,8 +481,14 @@ class TestCompanyNamesInTheIndex:
         path, _ = asyncio.run(
             builder.build(
                 {
-                    'RELIANCE': 'Reliance Industries Limited',
-                    'NIFTY': 'Should Not Be Used',
+                    'RELIANCE': {
+                        'name': 'Reliance Industries Limited',
+                        'sector': 'Oil Gas & Consumable Fuels',
+                    },
+                    'NIFTY': {
+                        'name': 'Should Not Be Used',
+                        'sector': 'Nothing',
+                    },
                 }
             )
         )
@@ -490,6 +502,14 @@ class TestCompanyNamesInTheIndex:
             'RELIANCE 27 OCT 2026 FUT',
         }
         assert index.instrument(fakes.NIFTY_ID)['company_name'] is None
+        assert index.instrument(fakes.NIFTY_ID)['sector'] is None
+        sectors = index.facets(instrument_index.SearchRequest())['sector']
+        assert sectors == [
+            {
+                'value': 'Oil Gas & Consumable Fuels',
+                'count': 3,
+            },
+        ]
 
 
 class TestFetchJobRunner:
@@ -619,3 +639,78 @@ class TestFetchJobRunner:
         runner, _, _ = self._runner([])
         with pytest.raises(ValueError, match='Unknown knowledge source'):
             asyncio.run(runner.submit(_RELIANCE, ['nope'], 'test'))
+
+
+class TestIndustries:
+    """Tests for importing and choosing sectors."""
+
+    def test_parse_constituents(self) -> None:
+        """Checks the Nifty Total Market CSV reader."""
+        text = 'Company Name,Industry,Symbol,Series,ISIN Code\n360 ONE WAM Ltd.,Financial Services,360ONE,EQ,INE466L01038\nNo Industry Ltd.,,NOPE,EQ,INE000000000\n'
+        importer = listing_importer.ListingImporter(
+            Transport({}).client(),
+            company_repository.CompanyRepository(fakes.FakeDatabase()),
+            fakes.FixedClock(0.0),
+        )
+        assert importer.parse_constituents(text) == [
+            {
+                'company_key': 'INE466L01038',
+                'name': '360 ONE WAM Ltd.',
+                'industry': 'Financial Services',
+                'symbol': '360ONE',
+                'isin': 'INE466L01038',
+            },
+        ]
+
+    def test_industries_mark_and_unmark(self) -> None:
+        """Checks that a company leaving the index loses its mark but keeps its industry."""
+        companies = company_repository.CompanyRepository(fakes.FakeDatabase())
+        first = {
+            'company_key': 'A',
+            'name': 'Alpha',
+            'industry': 'Financial Services',
+            'symbol': 'ALPHA',
+            'isin': 'A',
+        }
+        second = {
+            'company_key': 'B',
+            'name': 'Beta',
+            'industry': 'Healthcare',
+            'symbol': 'BETA',
+            'isin': 'B',
+        }
+        asyncio.run(companies.set_index_industries([first, second], 1.0))
+        asyncio.run(companies.set_index_industries([first], 2.0))
+        beta = asyncio.run(companies.find('B'))
+        assert beta['total_market'] is False
+        assert beta['nse_industry'] == 'Healthcare'
+        assert asyncio.run(companies.counts())['classified'] == 2
+
+    def test_sector_preference(self) -> None:
+        """Checks NSE's industry first, then Screener's classification, then Yahoo's sector."""
+        companies = company_repository.CompanyRepository(fakes.FakeDatabase())
+        assert (
+            companies.sector(
+                {
+                    'nse_industry': 'IT',
+                    'classification': [
+                        'Information Technology',
+                    ],
+                    'sector': 'Technology',
+                }
+            )
+            == 'IT'
+        )
+        assert (
+            companies.sector(
+                {
+                    'classification': [
+                        'Information Technology',
+                    ],
+                    'sector': 'Technology',
+                }
+            )
+            == 'Information Technology'
+        )
+        assert companies.sector({'sector': 'Technology'}) == 'Technology'
+        assert companies.sector({}) is None

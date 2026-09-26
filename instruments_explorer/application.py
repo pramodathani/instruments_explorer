@@ -47,7 +47,13 @@ from instruments_explorer.routes import frontend_routes
 from instruments_explorer.routes import instrument_routes
 from instruments_explorer.routes import knowledge_routes
 from instruments_explorer.routes import live_routes
+from instruments_explorer.routes import screener_routes
 from instruments_explorer.routes import status_routes
+from instruments_explorer.screener import screener_scheduler
+from instruments_explorer.screener import screener_service
+from instruments_explorer.screener import screener_universe
+from instruments_explorer.screener import snapshot_job
+from instruments_explorer.screener.conditions import condition_catalogue
 from instruments_explorer.security import authenticator
 from instruments_explorer.security import session_guard
 from instruments_explorer.security import websocket_origin_checker
@@ -56,6 +62,7 @@ from instruments_explorer.storage import company_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import mongo_connection
+from instruments_explorer.storage import screener_repository
 from instruments_explorer.unified_broker_interface import access_token_provider
 from instruments_explorer.unified_broker_interface import health_checker
 from instruments_explorer.unified_broker_interface import mongo_reader
@@ -97,6 +104,7 @@ class Application:
         self._web_client = None
         self._knowledge_parts = None
         self._scheduler = None
+        self._screener_scheduler = None
 
     def run(self) -> None:
         """Builds the application and serves it until stopped.
@@ -174,7 +182,7 @@ class Application:
             builder,
             self.time_source,
             check_interval_seconds=explorer_settings.index_check_interval_seconds,
-            name_source=companies.names_by_symbol,
+            name_source=companies.details_by_symbol,
         )
         hub = live_quote_hub.LiveQuoteHub()
         self._quote_reader = live_quote_reader.LiveQuoteReader(
@@ -189,6 +197,7 @@ class Application:
             explorer_settings.risk_free_rate,
         )
         knowledge_parts = self._build_knowledge(client, companies, hub)
+        screener_parts = self._build_screener(client, companies, hub)
         ubi_checker = health_checker.HealthChecker(
             client,
             token_provider,
@@ -210,7 +219,51 @@ class Application:
             hub,
             chain_builder,
             knowledge_parts,
+            screener_parts,
             with_lifespan=True,
+        )
+
+    def _build_screener(
+        self,
+        client: rest_client.UnifiedBrokerInterfaceClient,
+        companies: company_repository.CompanyRepository,
+        hub: live_quote_hub.LiveQuoteHub,
+    ) -> screener_routes.ScreenerParts:
+        """Builds the screener: its universe, figures job, service and daily scheduler.
+
+        Args:
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads candles from UBI.
+            companies (company_repository.CompanyRepository): Knows the index members and sectors.
+            hub (live_quote_hub.LiveQuoteHub): Announces run progress to browsers.
+
+        Returns:
+            screener_routes.ScreenerParts: The components the screener routes use.
+        """
+        repository = screener_repository.ScreenerRepository(
+            self._mongo.database()
+        )
+        universe = screener_universe.ScreenerUniverse(
+            self._maintainer, companies
+        )
+        job = snapshot_job.ScreenerSnapshotJob(
+            universe,
+            client,
+            repository,
+            hub.broadcast_event,
+            self.time_source,
+        )
+        catalogue = condition_catalogue.ConditionCatalogue()
+        self._screener_scheduler = screener_scheduler.ScreenerScheduler(
+            job,
+            repository,
+            self.time_source,
+        )
+        return screener_routes.ScreenerParts(
+            universe,
+            job,
+            screener_service.ScreenerService(universe, repository, catalogue),
+            catalogue,
+            repository,
         )
 
     def _build_knowledge(
@@ -307,6 +360,7 @@ class Application:
         hub: live_quote_hub.LiveQuoteHub,
         chain_builder: option_chain_builder.OptionChainBuilder,
         knowledge_parts: knowledge_routes.KnowledgeParts,
+        screener_parts: screener_routes.ScreenerParts,
         with_lifespan: bool,
     ) -> fastapi.FastAPI:
         """Assembles the FastAPI application from ready components.
@@ -321,6 +375,7 @@ class Application:
             hub (live_quote_hub.LiveQuoteHub): Delivers live quotes to browsers.
             chain_builder (option_chain_builder.OptionChainBuilder): Builds option chains and volatility surfaces.
             knowledge_parts (knowledge_routes.KnowledgeParts): The knowledge pipeline's components.
+            screener_parts (screener_routes.ScreenerParts): The screener's components.
             with_lifespan (bool): Whether start-up should open and refresh the index and start the quote reader, and shutdown close everything.
 
         Returns:
@@ -368,6 +423,7 @@ class Application:
         )
         derivatives = derivative_routes.DerivativeRoutes(chain_builder, guard)
         knowledge = knowledge_routes.KnowledgeRoutes(knowledge_parts, guard)
+        screener = screener_routes.ScreenerRoutes(screener_parts, guard)
         live = live_routes.LiveRoutes(
             hub,
             guard,
@@ -383,6 +439,7 @@ class Application:
         web_application.include_router(charts.router)
         web_application.include_router(derivatives.router)
         web_application.include_router(knowledge.router)
+        web_application.include_router(screener.router)
         web_application.include_router(live.router)
         web_application.include_router(frontend.router)
         return web_application
@@ -410,6 +467,7 @@ class Application:
             asyncio.create_task(self._quote_reader.run()),
             asyncio.create_task(self._knowledge_parts.runner.run()),
             asyncio.create_task(self._scheduler.run()),
+            asyncio.create_task(self._screener_scheduler.run()),
         ]
         try:
             yield
@@ -429,15 +487,24 @@ class Application:
             await self._chroma.close()
 
     async def _prepare_knowledge(self) -> None:
-        """Creates the MongoDB indexes and imports NSE's equity list once, the first time the application starts."""
+        """Creates the MongoDB indexes, and imports NSE's equity list and the Nifty Total Market industries the first time the application starts."""
         parts = self._knowledge_parts
         try:
             await parts.companies.ensure_indexes()
             await parts.documents.ensure_indexes()
             counts = await parts.companies.counts()
+            changed = False
             if counts['listed'] == 0:
                 imported = await parts.importer.import_nse()
                 _LOGGER.info('Imported %d companies from NSE.', imported)
+                changed = True
+            if counts['classified'] == 0:
+                classified = await parts.importer.import_sectors()
+                _LOGGER.info(
+                    'Imported industries for %d companies.', classified
+                )
+                changed = True
+            if changed:
                 await parts.after_listing_import()
         except Exception as error:  # noqa: BLE001
             _LOGGER.warning('Preparing company knowledge failed: %s', error)

@@ -24,6 +24,7 @@ FACET_COLUMNS = [
     'segment',
     'option_type',
     'expiry_month',
+    'sector',
 ]
 SORT_ORDERS = [
     'relevance',
@@ -45,6 +46,7 @@ _RESULT_COLUMNS = [
     'underlying_symbol',
     'display_name',
     'company_name',
+    'sector',
     'expiry_date',
     'strike_price',
     'option_type',
@@ -473,6 +475,29 @@ class InstrumentIndex:
         security = dict(zip(_RESULT_COLUMNS, row, strict=True))
         security['is_index'] = bool(security['is_index'])
         return security
+
+    def share_ids_by_symbol(self, exchange: str) -> dict[str, str]:
+        """Maps every ordinary share's symbol on an exchange to its instrument id.
+
+        Args:
+            exchange (str): The exchange, such as "nse".
+
+        Returns:
+            dict[str, str]: Instrument ids by symbol, for the equities segment only.
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT symbol, instrument_id
+                FROM instruments
+                WHERE exchange = ? AND bare_segment = 'equities' AND shape = 'security'
+                """,
+                (exchange,),
+            ).fetchall()
+        shares = {}
+        for symbol, instrument_id in rows:
+            shares[symbol] = instrument_id
+        return shares
 
     def close(self) -> None:
         """Closes the connection."""

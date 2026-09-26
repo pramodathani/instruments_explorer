@@ -185,16 +185,17 @@ class KnowledgeRoutes:
         }
 
     async def refresh_listing(self) -> dict[str, Any]:
-        """Imports NSE's equity list again, then rebuilds the instrument index in the background with the names.
+        """Imports NSE's equity list and the Nifty Total Market industries again, then rebuilds the instrument index in the background with the names and sectors.
 
         Returns:
-            dict[str, Any]: "companies", the number imported.
+            dict[str, Any]: "companies", the number imported, and "classified", the number given an industry.
 
         Raises:
             fastapi.HTTPException: 502 when NSE could not be read.
         """
         try:
             count = await self.parts.importer.import_nse()
+            classified = await self.parts.importer.import_sectors()
         except (
             httpx.HTTPError,
             polite_client.RobotsDisallowedError,
@@ -209,6 +210,7 @@ class KnowledgeRoutes:
         task.add_done_callback(self._background_tasks.discard)
         return {
             'companies': count,
+            'classified': classified,
         }
 
     async def companies(

@@ -1,6 +1,6 @@
-"""Imports NSE's list of every listed equity, which gives each company its full name and ISIN.
+"""Imports NSE's list of every listed equity, which gives each company its full name and ISIN, and the Nifty Total Market constituents, which give about 750 of them an industry.
 
-The list is one CSV file of about 2,400 rows published by NSE. It seeds the companies collection, and the names it brings make companies findable by name in the instrument search.
+The equity list is one CSV file of about 2,600 rows published by NSE. It seeds the companies collection, and the names it brings make companies findable by name in the instrument search. The constituent list's industries are the sectors of the screener's heatmap and of the Explore sector filter.
 
 Typical usage example:
 
@@ -20,6 +20,7 @@ from instruments_explorer.utilities import clock
 NSE_EQUITY_LIST_URL = (
     'https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv'
 )
+TOTAL_MARKET_LIST_URL = 'https://nsearchives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv'
 
 
 class ListingImporter:
@@ -64,6 +65,60 @@ class ListingImporter:
             listings,
             self._time_source.now(),
         )
+
+    async def import_sectors(self) -> int:
+        """Downloads the Nifty Total Market index's constituents, which give about 750 companies an industry, and stores them.
+
+        Returns:
+            int: The number of companies given an industry.
+
+        Raises:
+            polite_client.RobotsDisallowedError: NSE's robots.txt forbids the download.
+            httpx.HTTPError: NSE could not be reached or refused the request.
+            ValueError: The file has no rows with an ISIN and an industry.
+        """
+        response = await self._client.get(TOTAL_MARKET_LIST_URL)
+        response.raise_for_status()
+        constituents = self.parse_constituents(response.text)
+        if not constituents:
+            raise ValueError(
+                'The Nifty Total Market list has no rows with an ISIN and an industry.'
+            )
+        return await self._companies.set_index_industries(
+            constituents,
+            self._time_source.now(),
+        )
+
+    def parse_constituents(self, text: str) -> list[dict[str, str]]:
+        """Reads an index constituent CSV with "Company Name", "Industry", "Symbol", "Series" and "ISIN Code".
+
+        Args:
+            text (str): The CSV text.
+
+        Returns:
+            list[dict[str, str]]: One {"company_key", "name", "industry", "symbol", "isin"} per row with an ISIN and an industry.
+        """
+        constituents = []
+        for row in csv.DictReader(io.StringIO(text)):
+            cleaned = {}
+            for key, value in row.items():
+                if key is not None:
+                    cleaned[key.strip()] = (value or '').strip()
+            isin = cleaned.get('ISIN Code')
+            industry = cleaned.get('Industry')
+            symbol = cleaned.get('Symbol')
+            if not isin or not industry or not symbol:
+                continue
+            constituents.append(
+                {
+                    'company_key': isin,
+                    'name': cleaned.get('Company Name') or symbol,
+                    'industry': industry,
+                    'symbol': symbol,
+                    'isin': isin,
+                }
+            )
+        return constituents
 
     def parse(self, text: str) -> list[dict[str, Any]]:
         """Reads the CSV into company listings.

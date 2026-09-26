@@ -62,6 +62,61 @@ class CompanyRepository:
             count += 1
         return count
 
+    async def set_index_industries(
+        self,
+        constituents: Iterable[Mapping[str, Any]],
+        imported_at: float,
+    ) -> int:
+        """Marks the Nifty Total Market constituents and stores the industry NSE gives each.
+
+        Companies no longer in the list lose their mark, so the screener's default universe follows the index. The index's own short name is kept as "index_name", apart from the registered name the equity list gives.
+
+        Args:
+            constituents (Iterable[Mapping[str, Any]]): One mapping per company with "company_key", "name", "industry", "symbol" and "isin".
+            imported_at (float): When the list was read, in epoch seconds.
+
+        Returns:
+            int: The number of companies marked.
+        """
+        keys = set()
+        for constituent in constituents:
+            keys.add(constituent['company_key'])
+            await self._collection.update_one(
+                {
+                    '_id': constituent['company_key'],
+                },
+                {
+                    '$set': {
+                        'company_key': constituent['company_key'],
+                        'symbol': constituent['symbol'],
+                        'isin': constituent['isin'],
+                        'nse_industry': constituent['industry'],
+                        'index_name': constituent['name'],
+                        'total_market': True,
+                        'industries_imported_at': imported_at,
+                    },
+                },
+                upsert=True,
+            )
+        cursor = self._collection.find(
+            {
+                'total_market': True,
+            }
+        )
+        async for document in cursor:
+            if document['_id'] not in keys:
+                await self._collection.update_one(
+                    {
+                        '_id': document['_id'],
+                    },
+                    {
+                        '$set': {
+                            'total_market': False,
+                        },
+                    },
+                )
+        return len(keys)
+
     async def merge(
         self,
         company_key: str,
@@ -128,13 +183,13 @@ class CompanyRepository:
         )
         return self._clean(document)
 
-    async def names_by_symbol(self) -> dict[str, str]:
-        """Reads every listed company's name by symbol, for the instrument search index.
+    async def details_by_symbol(self) -> dict[str, dict[str, str | None]]:
+        """Reads every known company's name and sector by symbol, for the instrument search index and the screener.
 
         Returns:
-            dict[str, str]: Company names by NSE symbol.
+            dict[str, dict[str, str | None]]: {"name", "sector"} by NSE symbol.
         """
-        names = {}
+        details = {}
         cursor = self._collection.find(
             {
                 'symbol': {
@@ -144,10 +199,58 @@ class CompanyRepository:
         )
         async for document in cursor:
             symbol = document.get('symbol')
-            name = document.get('name')
-            if symbol and name:
-                names[symbol] = name
-        return names
+            if not symbol:
+                continue
+            details[symbol] = {
+                'name': document.get('name') or document.get('index_name'),
+                'sector': self.sector(document),
+            }
+        return details
+
+    async def screener_members(
+        self, only_total_market: bool
+    ) -> list[dict[str, Any]]:
+        """Lists the companies a screener universe covers.
+
+        Args:
+            only_total_market (bool): True for Nifty Total Market constituents only, False for every company in NSE's equity list.
+
+        Returns:
+            list[dict[str, Any]]: Company documents without their _id.
+        """
+        if only_total_market:
+            query = {
+                'total_market': True,
+            }
+        else:
+            query = {
+                'listing_imported_at': {
+                    '$exists': True,
+                },
+            }
+        members = []
+        async for document in self._collection.find(query):
+            if document.get('symbol'):
+                members.append(self._clean(document))
+        return members
+
+    def sector(self, document: Mapping[str, Any]) -> str | None:
+        """Chooses a company's sector from what its sources report.
+
+        NSE's index industry comes first because it covers the most companies with one consistent vocabulary; Screener.in's top-level classification and Yahoo's sector follow for companies outside the index.
+
+        Args:
+            document (Mapping[str, Any]): The company document.
+
+        Returns:
+            str | None: The sector, or None when no source reports one.
+        """
+        if document.get('nse_industry'):
+            return document['nse_industry']
+        classification = document.get('classification') or []
+        if classification:
+            return classification[0]
+        return document.get('sector')
 
     async def search(self, text: str, limit: int) -> list[dict[str, Any]]:
         """Finds companies whose name or symbol starts with typed text, or the most recently fetched ones when nothing is typed.
@@ -214,11 +317,18 @@ class CompanyRepository:
         """Counts listed companies and companies with fetched data.
 
         Returns:
-            dict[str, int]: "listed" and "fetched".
+            dict[str, int]: "listed", "classified" (given an NSE industry) and "fetched".
         """
         listed = await self._collection.count_documents(
             {
                 'listing_imported_at': {
+                    '$exists': True,
+                },
+            }
+        )
+        classified = await self._collection.count_documents(
+            {
+                'nse_industry': {
                     '$exists': True,
                 },
             }
@@ -232,6 +342,7 @@ class CompanyRepository:
         )
         return {
             'listed': listed,
+            'classified': classified,
             'fetched': fetched,
         }
 
