@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 7 are done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and all eight phases are done:
 
 | Phase | Contents |
 |---|---|
@@ -88,6 +88,13 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - `GET /api/universe?include_options=` returns every instrument (about 43,000 without options, 236,000 with) as parallel arrays: ids, names, exchanges, shapes, asset classes, flattened x/y/z positions and today's change from ubi's `unified:quotes:live` hash. Responses are gzip-compressed by `GZipMiddleware`.
   - `UniverseLayout` makes each asset class a galaxy on a ring, each underlying a cluster on a sunflower spiral (biggest nearest the middle, each taking room in proportion to its size), and puts futures on a small ring and options on one shell per expiry around their underlying, calls above and puts below. The ring's radius is computed so neighbouring galaxies do not overlap.
   - `UniverseService` caches the layout until the index file changes and the changes for a minute.
+- **Chat assistant** (`assistant/`, `routes/chat_routes.py`, `storage/conversation_repository.py`, `storage/chat_usage_repository.py`).
+  - `ChatSession` runs a hand-written streaming tool loop over `client.beta.messages.stream` with `claude-opus-5-5`, adaptive thinking with `display: 'summarized'`, explicit effort, `fallbacks='default'` (beta `server-side-fallback-2026-07-01`) and no `tool_choice` (Opus 5.5 rejects forced choices). `POST /api/chat/conversations/{id}/messages` streams its events as Server-Sent Events.
+  - History is append-only: content blocks are stored with `block.to_dict(mode='json')` in `chat_messages` and replayed unchanged, because Opus 5.5 checks that replayed thinking blocks belong to an unedited conversation. Never edit or reorder stored messages; panel-only facts go in a message's `display` field.
+  - `system_prompt.md` and the tool list must stay byte-identical between requests for prompt caching. Per-message context (time, page) goes in a `<page_context>` block at the start of each user message.
+  - Each tool is its own class in `assistant/tools/` over `BaseTool`, calling the pages' own route handlers through `AssistantServices`; `ToolBox` lists them in a fixed order plus the server-side `web_search_20260209` tool. Inputs are checked against the schema before running, because eager input streaming turns off server-side validation.
+  - `request_knowledge_fetch` only shows the user a button; `show_in_ui` builds page addresses from structured fields.
+  - The daily limit counts input, output and cache-write tokens per India day in `chat_usage`, not cache reads.
 - **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
@@ -97,6 +104,7 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - The screener page (`screener/`) keeps its universe, conditions, sectors and sort in the page address, follows figure runs through `LiveSocket.onScreenerJob`, and draws the heatmap with Highcharts' treemap module, which attaches to the `highstock` bundle when imported after it.
   - The universe page (`universe/`) keeps `options` and `focus` (an instrument id to fly to) in the page address. Its scene is `three/universeScene.ts`: one `THREE.Points` cloud with fixed pixel-size points that grow as the camera nears, hover by raycasting on the next frame after the pointer moves, click to choose, and camera flights to instruments and galaxies.
   - The settings page (`pages/SettingsPage.tsx`) chooses the theme and animation level and shows every connection's state from `/api/status`.
+  - The chat (`assistant/`) keeps its state in `chatController`, shared by the slide-in `ChatPanel` and the `/chat` page. It reads the streamed answer with `fetch`, renders Markdown with `react-markdown` and `remark-gfm`, and opens views through a navigator `AppLayout` sets.
   - The chart (`charts/`) is Highcharts Stock, loaded lazily with the instrument page's `ChartPanel`. Its interval, period, adjustment, 2D/3D view and indicators live in the page address. `ChartOptionsBuilder` lays out the price pane, the volume pane and one pane per panel indicator. `LiveCandleMerger` adds today's candle from the live quote when ubi's stored history stops before today.
   - Import the React wrapper as `import { HighchartsReact } from 'highcharts-react-official'`. The default import resolves to the CommonJS module object under Vite and crashes React with error 130.
   - Highcharts series and axes share one id namespace, so axes are named `price-axis`, `volume-axis` and `panel-axis-<indicator id>`.
