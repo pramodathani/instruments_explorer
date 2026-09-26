@@ -15,3 +15,7 @@ The first plan was to follow ubi's quote stream, `unified:quotes:stream`. sridha
 ## The first quote
 
 The instrument page asks ubi's REST quote route once, then relies on the live feed. That route answers from ubi's cache and falls back to a live broker call when the cache is older than five minutes during a session, so it is not polled.
+
+## Quotes read through tradingmachine since 2026-09-26
+
+`LiveQuoteReader` and `QuoteSnapshotReader` no longer talk to Redis themselves. They read UBI's `unified:quotes:live` hash through `unified_broker_interface/live_quote_gateway.py`, which runs tradingmachine's `LiveQuoteReader` in a worker thread. `LiveQuoteReader` still sends one read per 500 watched instruments, so a Redis failure part-way still delivers the batches read before it; `QuoteSnapshotReader` hands all its ids over at once and lets tradingmachine batch them, and still answers with an empty result when Redis is down. A Redis failure now arrives as tradingmachine's `UnreachableError`.
