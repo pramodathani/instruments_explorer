@@ -199,3 +199,97 @@ export interface ChartResponse {
   indicators: IndicatorResult[];
   errors: string[];
 }
+
+/** One underlying that has futures or options on an exchange. */
+export interface Underlying {
+  exchange: string;
+  underlying_symbol: string;
+  asset_class: string;
+  is_index: boolean;
+  futures: number;
+  options: number;
+  expiries: number;
+  next_expiry: string | null;
+}
+
+/** An underlying's cash instrument with its latest price. */
+export interface SpotPrice {
+  instrument_id: string;
+  display_name: string;
+  last_price: number | null;
+  change_percent: number | null;
+}
+
+/** The answer of /api/derivatives/expiries. */
+export interface ExpiryDescription {
+  exchange: string;
+  underlying_symbol: string;
+  spot: SpotPrice | null;
+  futures: {
+    instrument_id: string;
+    display_name: string;
+    expiry_date: string;
+    last_price: number | null;
+  }[];
+  option_expiries: {
+    expiry_date: string;
+    contracts: number;
+    strikes: number;
+    days: number;
+  }[];
+}
+
+/** One call or put in an option chain row. */
+export interface ChainSide {
+  instrument_id: string;
+  last_price: number | null;
+  change_percent: number | null;
+  oi: number | null;
+  volume: number | null;
+  bid: number | null;
+  offer: number | null;
+  received_at: number | null;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+}
+
+/** One strike of an option chain. */
+export interface ChainRow {
+  strike: number;
+  call: ChainSide | null;
+  put: ChainSide | null;
+}
+
+/** The answer of /api/derivatives/chain. */
+export interface OptionChain {
+  exchange: string;
+  underlying_symbol: string;
+  expiry_date: string;
+  days: number;
+  rate: number;
+  spot: SpotPrice | null;
+  forward: number | null;
+  forward_source: 'future' | 'spot' | 'nearest_future' | null;
+  atm_strike: number | null;
+  max_pain: number | null;
+  put_call_ratio: number | null;
+  total_call_oi: number;
+  total_put_oi: number;
+  rows: ChainRow[];
+}
+
+/** The answer of /api/derivatives/surface. */
+export interface VolatilitySurface {
+  exchange: string;
+  underlying_symbol: string;
+  expiries: {
+    expiry_date: string;
+    days: number;
+    forward: number | null;
+  }[];
+  strikes: number[];
+  volatility: (number | null)[][];
+}

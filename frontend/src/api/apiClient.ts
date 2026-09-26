@@ -1,5 +1,9 @@
 import type {
   ChartResponse,
+  ExpiryDescription,
+  OptionChain,
+  Underlying,
+  VolatilitySurface,
   IndexStatus,
   IndicatorDescription,
   InstrumentDocument,
@@ -197,6 +201,81 @@ export class ApiClient {
       signal,
     });
     return (await this.readJson(response)) as unknown as ChartResponse;
+  }
+
+  /**
+   * Lists underlyings that have futures or options.
+   * @param text Typed text to match the start of the name.
+   * @param signal Aborts the request when newer typing replaces it.
+   * @returns One entry per exchange and underlying.
+   * @throws ApiError with 503 while the index is being built.
+   */
+  async fetchUnderlyings(text: string, signal: AbortSignal): Promise<Underlying[]> {
+    const query = new URLSearchParams();
+    query.set('q', text);
+    query.set('limit', '60');
+    const response = await fetch(`/api/derivatives/underlyings?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as Underlying[];
+  }
+
+  /**
+   * Fetches an underlying's cash price, futures and option expiries.
+   * @param exchange The exchange.
+   * @param underlying The underlying.
+   * @returns The description.
+   * @throws ApiError with 404 when the underlying has no derivatives.
+   */
+  async fetchExpiries(exchange: string, underlying: string): Promise<ExpiryDescription> {
+    const query = new URLSearchParams();
+    query.set('exchange', exchange);
+    query.set('underlying', underlying);
+    const response = await fetch(`/api/derivatives/expiries?${query.toString()}`, {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as ExpiryDescription;
+  }
+
+  /**
+   * Fetches one expiry's option chain.
+   * @param exchange The exchange.
+   * @param underlying The underlying.
+   * @param expiry The expiry as "YYYY-MM-DD".
+   * @param signal Aborts the request when a newer one replaces it.
+   * @returns The chain.
+   * @throws ApiError with 404 when there are no options for that expiry.
+   */
+  async fetchChain(exchange: string, underlying: string, expiry: string, signal: AbortSignal): Promise<OptionChain> {
+    const query = new URLSearchParams();
+    query.set('exchange', exchange);
+    query.set('underlying', underlying);
+    query.set('expiry', expiry);
+    const response = await fetch(`/api/derivatives/chain?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as OptionChain;
+  }
+
+  /**
+   * Fetches an underlying's implied volatility surface.
+   * @param exchange The exchange.
+   * @param underlying The underlying.
+   * @param signal Aborts the request when a newer one replaces it.
+   * @returns The surface.
+   * @throws ApiError with 404 when the underlying has no options.
+   */
+  async fetchSurface(exchange: string, underlying: string, signal: AbortSignal): Promise<VolatilitySurface> {
+    const query = new URLSearchParams();
+    query.set('exchange', exchange);
+    query.set('underlying', underlying);
+    const response = await fetch(`/api/derivatives/surface?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as VolatilitySurface;
   }
 
   /**

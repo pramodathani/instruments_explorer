@@ -93,6 +93,14 @@ export function InstrumentPage() {
             <span className="chip">{formatter.shape(record.shape)}</span>
             {record.is_index ? <span className="chip">Index</span> : null}
             {document?.attributes.display_name !== undefined ? <span className="muted">{document.attributes.display_name}</span> : null}
+            {record.shape !== 'security' || record.is_index || record.bare_segment === 'equities' ? (
+              <Link
+                className="button button-quiet"
+                to={`/derivatives?exchange=${record.exchange}&underlying=${encodeURIComponent(record.underlying_symbol ?? record.symbol ?? '')}`}
+              >
+                Option chain →
+              </Link>
+            ) : null}
           </div>
         ) : null}
       </div>

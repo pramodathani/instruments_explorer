@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 
 import { apiClient } from './api/apiClient';
@@ -9,6 +9,13 @@ import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PlannedPage } from './pages/PlannedPage';
+
+const DerivativesPage = lazy(async () => {
+  const module = await import('./derivatives/DerivativesPage');
+  return {
+    default: module.DerivativesPage,
+  };
+});
 
 type SessionState = 'checking' | 'logged-out' | 'logged-in';
 
@@ -46,16 +53,9 @@ export function App() {
           <Route
             path="derivatives"
             element={
-              <PlannedPage
-                title="Derivatives"
-                description="Walk from an underlying to its futures and options."
-                phase={4}
-                items={[
-                  'An expiry tree for each underlying.',
-                  'An option chain with LTP, open interest and implied volatility.',
-                  'A 3D volatility surface of strike, expiry and implied volatility.',
-                ]}
-              />
+              <Suspense fallback={<p className="muted">Loading the derivatives page…</p>}>
+                <DerivativesPage />
+              </Suspense>
             }
           />
           <Route

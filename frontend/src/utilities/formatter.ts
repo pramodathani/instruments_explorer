@@ -99,6 +99,30 @@ export class Formatter {
   }
 
   /**
+   * Formats an implied volatility.
+   * @param value The volatility in percent, or null.
+   * @returns The value such as "11.4%", or a dash for null.
+   */
+  volatility(value: number | null | undefined): string {
+    if (value === null || value === undefined) {
+      return '–';
+    }
+    return `${value.toFixed(1)}%`;
+  }
+
+  /**
+   * Chooses the colour class for a change.
+   * @param value The change, or null.
+   * @returns "change-up", "change-down", or an empty string for no change.
+   */
+  changeClass(value: number | null | undefined): string {
+    if (value === null || value === undefined || value === 0) {
+      return '';
+    }
+    return value > 0 ? 'change-up' : 'change-down';
+  }
+
+  /**
    * Formats a strike without trailing zeros.
    * @param value The strike, or null.
    * @returns The strike such as "25000" or "82.25", or an empty string for null.
