@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 4 are done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 5 are done:
 
 | Phase | Contents |
 |---|---|
@@ -71,11 +71,20 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - `BlackModel` and `ImpliedVolatilitySolver` (bisection) give implied volatility and the Greeks. The forward is the same-expiry future's price, else the spot carried forward at `INSTRUMENTS_EXPLORER_RISK_FREE_RATE`, else the nearest future. `ExpiryClock` counts to 15:30 India time on the expiry date.
   - Implied volatility uses the mid of a tight bid and offer, or the last price only when the contract traded today. An untraded contract's last price is an old close and gives false volatility.
   - The surface's strikes come from the nearest expiry within 8% of its forward; gaps are interpolated, never extrapolated, and lone spikes are dropped.
+- **Company knowledge** (`knowledge/`, `storage/*_repository.py`, `routes/knowledge_routes.py`).
+  - Each source is its own fetcher class in `knowledge/fetchers/`: NSE announcements, Yahoo Finance (through yfinance), Screener.in, Wikipedia, seven RSS news feeds, Bing News RSS and Google Programmable Search. Wikipedia stays off until `INSTRUMENTS_EXPLORER_KNOWLEDGE_CONTACT` is set, because its robot policy asks for contact details; Google search stays off until its API key and engine id are set.
+  - Every fetcher except yfinance goes through `PoliteHttpClient`, which checks robots.txt (cached a day) and waits `INSTRUMENTS_EXPLORER_KNOWLEDGE_HOST_INTERVAL_SECONDS` between requests to one site. Google News RSS is blocked by its robots.txt, and NSE's per-company quote API sits behind Akamai bot detection, so neither is used.
+  - `ListingImporter` loads NSE's `EQUITY_L.csv` (about 2,585 companies with names and ISINs) into the `companies` collection on first start and on demand. The instrument index then includes company names, so "infosys" finds INFY.
+  - `CompanyResolver` maps an instrument to its company: a derivative to its underlying's company, keyed by ISIN; indices, commodities, currencies and bonds are refused.
+  - `FetchJobRunner` runs one job at a time in the background, one step per source, so a failing site never stops the others. It saves each change to `fetch_jobs` and broadcasts it on `/api/live` as a `fetch_job` event. `KnowledgeScheduler` repeats the news sources for fetched companies every `INSTRUMENTS_EXPLORER_KNOWLEDGE_REFRESH_HOURS`.
+  - `KnowledgeService` merges profile fields into `companies` with `$set` (sources never overwrite each other), stores documents in `documents`, and embeds them in the ChromaDB collection `company_documents` with the local all-MiniLM-L6-v2 model (downloaded once to `~/.cache/chroma`).
+  - The index file carries a `schema_version`; a file built by older code is rebuilt automatically instead of failing.
 - **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
   - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
   - The derivatives page (`derivatives/`) keeps the underlying, expiry, tab and strike range in the page address and refreshes the chain every five seconds while the tab is visible. Its 3D surface is `three/surfaceScene.ts`.
+  - The knowledge page (`knowledge/`) and each instrument page's `CompanyPanel` follow fetch jobs live through `LiveSocket.onFetchJob`.
   - The chart (`charts/`) is Highcharts Stock, loaded lazily with the instrument page's `ChartPanel`. Its interval, period, adjustment, 2D/3D view and indicators live in the page address. `ChartOptionsBuilder` lays out the price pane, the volume pane and one pane per panel indicator. `LiveCandleMerger` adds today's candle from the live quote when ubi's stored history stops before today.
   - Import the React wrapper as `import { HighchartsReact } from 'highcharts-react-official'`. The default import resolves to the CommonJS module object under Vite and crashes React with error 130.
   - Highcharts series and axes share one id namespace, so axes are named `price-axis`, `volume-axis` and `panel-axis-<indicator id>`.
@@ -98,9 +107,10 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - Conversation history must stay append-only.
   - The API key lives only on the server, in `INSTRUMENTS_EXPLORER_ANTHROPIC_API_KEY`.
 - **Knowledge fetchers.**
-  - Fetchers respect robots.txt and a per-host rate limit.
+  - Every new fetcher goes through `PoliteHttpClient`, so it respects robots.txt and the per-host rate limit. Check a new site's robots.txt with Python's `urllib.robotparser` before adding it.
   - Paywalled sites such as Bloomberg and The Economist contribute only their public RSS headlines and summaries.
   - Web search uses official search APIs, never scraped result pages.
+  - Never put the user's email address in a user agent or request on your own initiative; Wikipedia's contact value is the user's choice.
 - **Browser checks.** Use a throwaway password passed through the environment of a single run, never written to `.env`. The user runs the app as a systemd user service on port 8100, so run the check copy on another port such as 8101 and open it at `127.0.0.1`, not `localhost`. Browser cookies ignore the port, so logging in on `localhost:8101` would log the user out on `localhost:8100`.
 - **Restarting.** After backend changes, restart the user's service with `systemctl --user restart instruments-explorer`. A frontend rebuild needs no restart.
 - **Sources of truth.** Highcharts is used under its non-commercial licence. The ubi REST reference is `~/Projects/unified_broker_interface/docs/rest-api/`.
