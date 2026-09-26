@@ -1,0 +1,182 @@
+.universe-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.universe-search {
+  position: relative;
+  flex: 1 1 240px;
+}
+
+.universe-search .input {
+  width: 100%;
+}
+
+.universe-matches {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface-solid);
+}
+
+.universe-matches button {
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.universe-matches button:hover {
+  background: var(--surface-hover);
+}
+
+.universe-view {
+  position: relative;
+  height: calc(100vh - var(--header-height) - 250px);
+  min-height: 460px;
+  padding: 0;
+  overflow: clip;
+  background: radial-gradient(ellipse at center, var(--data-panel), var(--page));
+}
+
+.universe-view canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.universe-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+}
+
+.universe-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.universe-overlay > * {
+  pointer-events: auto;
+}
+
+.universe-galaxies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.universe-galaxies .chip {
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.universe-stats {
+  font-size: var(--font-size-small);
+  align-self: flex-start;
+}
+
+.universe-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-self: flex-start;
+  font-size: var(--font-size-small);
+  text-transform: capitalize;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.universe-selected {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 14px;
+  background: var(--surface-solid);
+  animation: universe-card-in 0.25s ease-out;
+}
+
+.universe-card-name {
+  font-weight: 600;
+}
+
+.universe-card-facts {
+  font-size: var(--font-size-small);
+  text-transform: capitalize;
+}
+
+.universe-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.universe-hover {
+  position: fixed;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+  padding: 8px 12px;
+  background: var(--surface-solid);
+  pointer-events: none;
+}
+
+.universe-hint {
+  margin-top: 8px;
+  font-size: var(--font-size-small);
+}
+
+@keyframes universe-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (max-width: 700px) {
+  .universe-view {
+    height: 70vh;
+  }
+}

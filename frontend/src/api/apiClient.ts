@@ -21,6 +21,7 @@ import type {
   SearchParameters,
   SearchResponse,
   StatusDocument,
+  UniverseMap,
 } from './types';
 
 const REQUESTED_WITH_HEADER = 'X-Requested-With';
@@ -420,6 +421,21 @@ export class ApiClient {
       credentials: 'same-origin',
     });
     return (await this.readJson(response)) as unknown as KnowledgeDocument;
+  }
+
+  /**
+   * Fetches the universe map.
+   * @param includeOptions Whether to include options, which makes the map about five times larger.
+   * @param signal Cancels the request.
+   * @returns The laid-out instruments.
+   * @throws ApiError with 503 while the instrument index is being built.
+   */
+  async fetchUniverse(includeOptions: boolean, signal: AbortSignal): Promise<UniverseMap> {
+    const response = await fetch(`/api/universe?include_options=${includeOptions ? 'true' : 'false'}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as UniverseMap;
   }
 
   /**

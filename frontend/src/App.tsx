@@ -8,7 +8,7 @@ import { AppLayout } from './layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { OverviewPage } from './pages/OverviewPage';
-import { PlannedPage } from './pages/PlannedPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 const DerivativesPage = lazy(async () => {
   const module = await import('./derivatives/DerivativesPage');
@@ -28,6 +28,13 @@ const ScreenerPage = lazy(async () => {
   const module = await import('./screener/ScreenerPage');
   return {
     default: module.ScreenerPage,
+  };
+});
+
+const UniversePage = lazy(async () => {
+  const module = await import('./universe/UniversePage');
+  return {
+    default: module.UniversePage,
   };
 });
 
@@ -75,18 +82,12 @@ export function App() {
           <Route
             path="universe"
             element={
-              <PlannedPage
-                title="Universe"
-                description="Every instrument as a point in a 3D scene you can fly through."
-                phase={7}
-                items={[
-                  'Clusters by exchange, segment and underlying or sector.',
-                  'Points coloured by the day’s change.',
-                  'Hover for details and click to open an instrument.',
-                ]}
-              />
+              <Suspense fallback={<p className="muted">Loading the universe…</p>}>
+                <UniversePage />
+              </Suspense>
             }
           />
+          <Route path="settings" element={<SettingsPage />} />
           <Route
             path="screener"
             element={

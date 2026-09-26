@@ -113,6 +113,9 @@ export function Header(props: HeaderProps) {
         >
           <Icon name="chat" />
         </button>
+        <NavLink to="/settings" className="icon-button" title="Settings" aria-label="Settings">
+          <Icon name="settings" />
+        </NavLink>
         <button type="button" className="icon-button" title="Log out" aria-label="Log out" onClick={onLogOut}>
           <Icon name="logout" />
         </button>

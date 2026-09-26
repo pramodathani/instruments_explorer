@@ -51,16 +51,24 @@ export class MotionController {
   cycle(): MotionLevel {
     const index = ORDER.indexOf(this.currentLevel());
     const next = ORDER[(index + 1) % ORDER.length];
-    document.documentElement.dataset.motion = next;
+    this.apply(next);
+    return next;
+  }
+
+  /**
+   * Applies a level to the page and remembers it for the next load.
+   * @param level The level to use.
+   */
+  apply(level: MotionLevel): void {
+    document.documentElement.dataset.motion = level;
     try {
-      window.localStorage.setItem(STORAGE_KEY, next);
+      window.localStorage.setItem(STORAGE_KEY, level);
     } catch {
-      document.documentElement.dataset.motion = next;
+      document.documentElement.dataset.motion = level;
     }
     for (const listener of this.listeners) {
       listener();
     }
-    return next;
   }
 
   /**

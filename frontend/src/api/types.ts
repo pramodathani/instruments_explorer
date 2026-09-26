@@ -496,3 +496,31 @@ export interface ScreenerParameters {
   sort: string;
   descending: boolean;
 }
+
+/** A label placed in the universe map: an asset class's galaxy or one of its biggest underlyings. */
+export interface UniverseLabel {
+  label: string;
+  x: number;
+  y: number;
+  z: number;
+  count: number;
+  radius: number;
+}
+
+/** Every instrument laid out in 3D, as parallel arrays with one entry per point. */
+export interface UniverseMap {
+  ids: string[];
+  names: string[];
+  exchanges: string[];
+  shapes: number[];
+  asset_classes: number[];
+  asset_class_names: string[];
+  positions: number[];
+  changes: (number | null)[];
+  galaxies: UniverseLabel[];
+  clusters: UniverseLabel[];
+  radius: number;
+  quoted: number;
+  mapping_date: string;
+  include_options: boolean;
+}
