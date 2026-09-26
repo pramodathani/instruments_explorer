@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import fastapi
 import httpx
+import starlette.middleware.gzip
 import starlette.middleware.sessions
 import uvicorn
 
@@ -49,6 +50,7 @@ from instruments_explorer.routes import knowledge_routes
 from instruments_explorer.routes import live_routes
 from instruments_explorer.routes import screener_routes
 from instruments_explorer.routes import status_routes
+from instruments_explorer.routes import universe_routes
 from instruments_explorer.screener import screener_scheduler
 from instruments_explorer.screener import screener_service
 from instruments_explorer.screener import screener_universe
@@ -68,6 +70,7 @@ from instruments_explorer.unified_broker_interface import health_checker
 from instruments_explorer.unified_broker_interface import mongo_reader
 from instruments_explorer.unified_broker_interface import redis_reader
 from instruments_explorer.unified_broker_interface import rest_client
+from instruments_explorer.universe import universe_service
 from instruments_explorer.utilities import clock
 
 _SESSION_COOKIE = 'instruments_explorer_session'
@@ -190,11 +193,19 @@ class Application:
             hub,
             interval_seconds=explorer_settings.live_quote_interval_seconds,
         )
+        snapshot_reader = quote_snapshot_reader.QuoteSnapshotReader(
+            self._redis_reader,
+        )
         chain_builder = option_chain_builder.OptionChainBuilder(
             self._maintainer,
-            quote_snapshot_reader.QuoteSnapshotReader(self._redis_reader),
+            snapshot_reader,
             self.time_source,
             explorer_settings.risk_free_rate,
+        )
+        universe = universe_service.UniverseService(
+            self._maintainer,
+            snapshot_reader,
+            self.time_source,
         )
         knowledge_parts = self._build_knowledge(client, companies, hub)
         screener_parts = self._build_screener(client, companies, hub)
@@ -220,6 +231,7 @@ class Application:
             chain_builder,
             knowledge_parts,
             screener_parts,
+            universe,
             with_lifespan=True,
         )
 
@@ -361,6 +373,7 @@ class Application:
         chain_builder: option_chain_builder.OptionChainBuilder,
         knowledge_parts: knowledge_routes.KnowledgeParts,
         screener_parts: screener_routes.ScreenerParts,
+        universe: universe_service.UniverseService,
         with_lifespan: bool,
     ) -> fastapi.FastAPI:
         """Assembles the FastAPI application from ready components.
@@ -376,6 +389,7 @@ class Application:
             chain_builder (option_chain_builder.OptionChainBuilder): Builds option chains and volatility surfaces.
             knowledge_parts (knowledge_routes.KnowledgeParts): The knowledge pipeline's components.
             screener_parts (screener_routes.ScreenerParts): The screener's components.
+            universe (universe_service.UniverseService): Lays out the 3D universe map.
             with_lifespan (bool): Whether start-up should open and refresh the index and start the quote reader, and shutdown close everything.
 
         Returns:
@@ -390,6 +404,10 @@ class Application:
             redoc_url=None,
             openapi_url=None,
             lifespan=lifespan,
+        )
+        web_application.add_middleware(
+            starlette.middleware.gzip.GZipMiddleware,
+            minimum_size=2000,
         )
         web_application.add_middleware(
             starlette.middleware.sessions.SessionMiddleware,
@@ -424,6 +442,7 @@ class Application:
         derivatives = derivative_routes.DerivativeRoutes(chain_builder, guard)
         knowledge = knowledge_routes.KnowledgeRoutes(knowledge_parts, guard)
         screener = screener_routes.ScreenerRoutes(screener_parts, guard)
+        universe_map = universe_routes.UniverseRoutes(universe, guard)
         live = live_routes.LiveRoutes(
             hub,
             guard,
@@ -440,6 +459,7 @@ class Application:
         web_application.include_router(derivatives.router)
         web_application.include_router(knowledge.router)
         web_application.include_router(screener.router)
+        web_application.include_router(universe_map.router)
         web_application.include_router(live.router)
         web_application.include_router(frontend.router)
         return web_application

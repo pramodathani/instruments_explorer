@@ -33,6 +33,7 @@ from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import screener_repository
 from instruments_explorer.unified_broker_interface import exceptions
+from instruments_explorer.universe import universe_service
 from tests import fakes
 
 _PASSWORD = 'correct horse battery'
@@ -191,6 +192,11 @@ class RouteParts:
             chain_builder,
             knowledge_parts,
             screener_parts,
+            universe_service.UniverseService(
+                self.maintainer,
+                self.snapshot_reader,
+                time_source,
+            ),
             with_lifespan=False,
         )
         self.client = fastapi.testclient.TestClient(web_application)
@@ -1035,9 +1041,9 @@ class TestScreenerRoutes:
             headers=_HEADERS,
         )
         assert response.json()['total'] == 1
-        state = parts.screener_job.state
-        for _ in range(200):
-            if state['status'] != 'running':
+        for _ in range(300):
+            setup = parts.client.get('/api/screener/setup').json()
+            if setup['last_runs'].get('total_market') is not None:
                 break
             asyncio.run(asyncio.sleep(0.01))
         body = parts.client.get(
@@ -1107,3 +1113,51 @@ class TestSectorFilter:
             'RELIANCE',
             'RELIANCE 27 OCT 2026 FUT',
         }
+
+
+class TestUniverseRoutes:
+    """Tests for the /api/universe route."""
+
+    def test_universe_without_options(self, tmp_path: Path) -> None:
+        """Checks that the map leaves options out by default and carries live changes.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.snapshot_reader.quotes[fakes.RELIANCE_NSE_ID] = {
+            'change_percent': 1.234,
+        }
+        parts.log_in()
+        body = parts.client.get('/api/universe').json()
+        assert 2 not in body['shapes']
+        assert len(body['positions']) == len(body['ids']) * 3
+        position = body['ids'].index(fakes.RELIANCE_NSE_ID)
+        assert body['changes'][position] == 1.23
+        assert body['quoted'] == 1
+
+    def test_universe_with_options(self, tmp_path: Path) -> None:
+        """Checks that options are included when asked for.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        body = parts.client.get('/api/universe?include_options=true').json()
+        assert 2 in body['shapes']
+        assert body['include_options'] is True
+
+    def test_universe_before_the_index_is_ready(self, tmp_path: Path) -> None:
+        """Checks that the map answers 503 while the index is being built.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(
+            tmp_path / 'dist',
+            tmp_path / 'index',
+            build_index=False,
+        )
+        parts.log_in()
+        assert parts.client.get('/api/universe').status_code == 503

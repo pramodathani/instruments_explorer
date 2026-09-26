@@ -476,6 +476,26 @@ class InstrumentIndex:
         security['is_index'] = bool(security['is_index'])
         return security
 
+    def universe_records(self, include_options: bool) -> list[tuple[Any, ...]]:
+        """Reads the columns the universe map lays out, for every instrument or every instrument except options.
+
+        Args:
+            include_options (bool): Whether to include options, which are about three quarters of the catalogue.
+
+        Returns:
+            list[tuple[Any, ...]]: One (instrument_id, exchange, asset_class, shape, is_index, root_name, display_name, expiry_date, strike_price, option_type, sector) per instrument.
+        """
+        condition = '' if include_options else "WHERE shape != 'option'"
+        with self._lock:
+            return self._connection.execute(
+                f"""
+                SELECT instrument_id, exchange, asset_class, shape, is_index, root_name,
+                    display_name, expiry_date, strike_price, option_type, sector
+                FROM instruments
+                {condition}
+                """
+            ).fetchall()
+
     def share_ids_by_symbol(self, exchange: str) -> dict[str, str]:
         """Maps every ordinary share's symbol on an exchange to its instrument id.
 
