@@ -1055,19 +1055,20 @@ class TestScreenerRoutes:
         parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
         self._prepare(parts)
         parts.log_in()
-        response = parts.client.post(
-            '/api/screener/refresh',
-            json={
-                'universe': 'total_market',
-            },
-            headers=_HEADERS,
-        )
-        assert response.json()['total'] == 1
-        for _ in range(1000):
-            setup = parts.client.get('/api/screener/setup').json()
-            if setup['last_runs'].get('total_market') is not None:
-                break
-            asyncio.run(asyncio.sleep(0.01))
+        with parts.client:
+            response = parts.client.post(
+                '/api/screener/refresh',
+                json={
+                    'universe': 'total_market',
+                },
+                headers=_HEADERS,
+            )
+            assert response.json()['total'] == 1
+            for _ in range(1000):
+                setup = parts.client.get('/api/screener/setup').json()
+                if setup['last_runs'].get('total_market') is not None:
+                    break
+                asyncio.run(asyncio.sleep(0.01))
         body = parts.client.get(
             '/api/screener/run?condition=rsi:0:100&sort=symbol&descending=false'
         ).json()

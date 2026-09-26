@@ -12,7 +12,9 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy
+from tradingmachine.assets.analysis import candle_frame_analysis
 
+from instruments_explorer.indicators import candle_analysis_factory
 from instruments_explorer.indicators import indicator_catalogue
 from instruments_explorer.indicators import patterns
 from instruments_explorer.market import candle_series
@@ -30,13 +32,14 @@ class IndicatorCalculator:
             catalogue (indicator_catalogue.IndicatorCatalogue): Finds indicators by key.
         """
         self._catalogue = catalogue
+        self._factory = candle_analysis_factory.CandleAnalysisFactory()
 
     def compute(
         self,
         series: candle_series.CandleSeries,
         requests: Sequence[str],
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Computes every requested indicator, collecting a message for each one that cannot be computed.
+        """Computes every requested indicator from one tradingmachine analysis of the candles, collecting a message for each one that cannot be computed.
 
         Args:
             series (candle_series.CandleSeries): The candles.
@@ -52,9 +55,10 @@ class IndicatorCalculator:
                 f'At most {MAXIMUM_INDICATORS} indicators can be shown at once; the rest were left out.'
             )
             requests = requests[:MAXIMUM_INDICATORS]
+        analysis = self._factory.create(series)
         for request in requests:
             try:
-                results.append(self._compute_one(series, request))
+                results.append(self._compute_one(series, analysis, request))
             except ValueError as error:
                 errors.append(str(error))
         return results, errors
@@ -82,12 +86,14 @@ class IndicatorCalculator:
     def _compute_one(
         self,
         series: candle_series.CandleSeries,
+        analysis: candle_frame_analysis.CandleFrameAnalysis,
         request: str,
     ) -> dict[str, Any]:
         """Computes one requested indicator.
 
         Args:
             series (candle_series.CandleSeries): The candles.
+            analysis (candle_frame_analysis.CandleFrameAnalysis): The same candles, ready for tradingmachine's analysis methods.
             request (str): The request, such as "bbands:20:2".
 
         Returns:
@@ -103,7 +109,7 @@ class IndicatorCalculator:
             raise ValueError(
                 f'{indicator.label} needs volume, and this instrument has none.'
             )
-        values = indicator.compute(series, parameters)
+        values = indicator.compute(analysis, parameters)
         outputs = []
         markers = []
         if indicator.placement == 'markers':
