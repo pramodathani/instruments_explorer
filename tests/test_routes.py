@@ -21,6 +21,7 @@ from instruments_explorer.knowledge import knowledge_service
 from instruments_explorer.knowledge import listing_importer
 from instruments_explorer.knowledge import polite_client
 from instruments_explorer.market import live_quote_hub
+from instruments_explorer.routes import chat_routes
 from instruments_explorer.routes import knowledge_routes
 from instruments_explorer.routes import screener_routes
 from instruments_explorer.screener import screener_service
@@ -28,7 +29,9 @@ from instruments_explorer.screener import screener_universe
 from instruments_explorer.screener import snapshot_job
 from instruments_explorer.screener.conditions import condition_catalogue
 from instruments_explorer.security import authenticator
+from instruments_explorer.storage import chat_usage_repository
 from instruments_explorer.storage import company_repository
+from instruments_explorer.storage import conversation_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import screener_repository
@@ -69,6 +72,7 @@ class RouteParts:
         index_directory: Path,
         api_key: str = '',
         build_index: bool = True,
+        claude_turns: list[fakes.FakeTurn] | None = None,
     ):
         """Builds the application with test components.
 
@@ -77,6 +81,7 @@ class RouteParts:
             index_directory (Path): Where the instrument index is built.
             api_key (str): The Claude API key setting.
             build_index (bool): Whether to build the index before serving, or leave it not ready.
+            claude_turns (list[fakes.FakeTurn] | None): The answers the fake Claude client gives, used when api_key is set.
         """
         explorer_settings = settings.Settings(
             _env_file=None,
@@ -110,6 +115,20 @@ class RouteParts:
             0.065,
         )
         database = fakes.FakeDatabase()
+        self.database = database
+        self.claude = None
+        if api_key:
+            self.claude = fakes.FakeClaudeClient(claude_turns or [])
+        self.conversations = conversation_repository.ConversationRepository(
+            database
+        )
+        self.chat_usage = chat_usage_repository.ChatUsageRepository(database)
+        chat_parts = chat_routes.ChatParts(
+            self.claude,
+            self.conversations,
+            self.chat_usage,
+            explorer_settings,
+        )
         self.companies = company_repository.CompanyRepository(database)
         documents = document_repository.DocumentRepository(database)
         jobs = fetch_job_repository.FetchJobRepository(database)
@@ -197,6 +216,7 @@ class RouteParts:
                 self.snapshot_reader,
                 time_source,
             ),
+            chat_parts,
             with_lifespan=False,
         )
         self.client = fastapi.testclient.TestClient(web_application)

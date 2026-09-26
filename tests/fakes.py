@@ -1,12 +1,16 @@
 """Test doubles shared by the test modules."""
 
+import copy
 import datetime
 import math
+import types
 from collections.abc import Awaitable, Callable
 from typing import Any, Self
 
 import pymongo.errors
 import redis
+from anthropic import _models as anthropic_models
+from anthropic.types.beta import parsed_beta_message
 
 from instruments_explorer.unified_broker_interface import exceptions
 
@@ -762,7 +766,7 @@ class FakeCursor:
 class FakeCollection:
     """A stand-in for a pymongo async collection supporting the operations the repositories use.
 
-    Filters support equality, "$exists", a "^prefix" "$regex" and "$or". Updates support "$set" with dotted keys.
+    Filters support equality, "$exists", a "^prefix" "$regex" and "$or". Updates support "$set" with dotted keys and "$inc".
 
     Attributes:
         documents: The stored documents by _id.
@@ -790,7 +794,7 @@ class FakeCollection:
 
         Args:
             query (dict[str, Any]): The filter.
-            update (dict[str, Any]): An update with "$set".
+            update (dict[str, Any]): An update with "$set" and optionally "$inc".
             upsert (bool): Whether to create a missing document.
         """
         document = self._first(query)
@@ -801,12 +805,50 @@ class FakeCollection:
                 '_id': query.get('_id'),
             }
             self.documents[document['_id']] = document
-        for key, value in update['$set'].items():
+        for key, value in update.get('$set', {}).items():
             target = document
             parts = key.split('.')
             for part in parts[:-1]:
                 target = target.setdefault(part, {})
             target[parts[-1]] = value
+        for key, value in update.get('$inc', {}).items():
+            document[key] = document.get(key, 0) + value
+
+    async def insert_one(self, document: dict[str, Any]) -> None:
+        """Stores a new document under its _id.
+
+        Args:
+            document (dict[str, Any]): The document, with "_id".
+
+        Raises:
+            KeyError: A document with that _id already exists.
+        """
+        if document['_id'] in self.documents:
+            raise KeyError(f'Duplicate _id: {document["_id"]!r}')
+        self.documents[document['_id']] = dict(document)
+
+    async def delete_one(self, query: dict[str, Any]) -> None:
+        """Removes the first matching document.
+
+        Args:
+            query (dict[str, Any]): The filter.
+        """
+        document = self._first(query)
+        if document is not None:
+            del self.documents[document['_id']]
+
+    async def delete_many(self, query: dict[str, Any]) -> None:
+        """Removes every matching document.
+
+        Args:
+            query (dict[str, Any]): The filter.
+        """
+        doomed = []
+        for key, document in self.documents.items():
+            if self._matches(document, query):
+                doomed.append(key)
+        for key in doomed:
+            del self.documents[key]
 
     async def replace_one(
         self,
@@ -1113,3 +1155,200 @@ class FakeFetcher:
         if self.error is not None:
             raise self.error
         return self.result
+
+
+class FakeTurn:
+    """One prepared answer from the fake Claude client: the stream events and the finished message.
+
+    Attributes:
+        content: The answer's content blocks as API dictionaries.
+        stop_reason: Why the answer stopped.
+        usage: The answer's token counts.
+        fails_with: An exception the stream raises instead of answering, or None.
+    """
+
+    def __init__(
+        self,
+        content: list[dict[str, Any]],
+        stop_reason: str,
+        usage: dict[str, int] | None = None,
+        fails_with: Exception | None = None,
+    ):
+        """Prepares the answer.
+
+        Args:
+            content (list[dict[str, Any]]): The content blocks as API dictionaries.
+            stop_reason (str): Why the answer stopped, such as "end_turn" or "tool_use".
+            usage (dict[str, int] | None): Token counts, or None for small defaults.
+            fails_with (Exception | None): An exception the stream raises instead of answering, or None.
+        """
+        self.content = content
+        self.stop_reason = stop_reason
+        if usage is None:
+            usage = {
+                'input_tokens': 100,
+                'output_tokens': 20,
+                'cache_read_input_tokens': 0,
+                'cache_creation_input_tokens': 0,
+            }
+        self.usage = usage
+        self.fails_with = fails_with
+
+    def events(self) -> list[Any]:
+        """Makes the stream events the SDK would give for this answer.
+
+        Returns:
+            list[Any]: Block starts, text and thinking deltas.
+        """
+        events = []
+        for block in self.content:
+            events.append(
+                types.SimpleNamespace(
+                    type='content_block_start',
+                    content_block=types.SimpleNamespace(**block),
+                )
+            )
+            if block['type'] == 'text':
+                events.append(
+                    types.SimpleNamespace(
+                        type='text',
+                        text=block['text'],
+                    )
+                )
+            if block['type'] == 'thinking':
+                events.append(
+                    types.SimpleNamespace(
+                        type='thinking',
+                        thinking=block['thinking'],
+                    )
+                )
+        return events
+
+    def message(self) -> Any:
+        """Builds the finished message with the SDK's own types.
+
+        Returns:
+            Any: A ParsedBetaMessage.
+        """
+        return anthropic_models.construct_type(
+            type_=parsed_beta_message.ParsedBetaMessage,
+            value={
+                'id': 'msg_fake',
+                'type': 'message',
+                'role': 'assistant',
+                'model': 'claude-opus-5-5',
+                'content': self.content,
+                'stop_reason': self.stop_reason,
+                'stop_sequence': None,
+                'usage': self.usage,
+            },
+        )
+
+
+class FakeStream:
+    """A stand-in for the SDK's async message stream."""
+
+    def __init__(self, turn: FakeTurn):
+        """Keeps the answer to replay.
+
+        Args:
+            turn (FakeTurn): The answer.
+        """
+        self._turn = turn
+
+    async def __aenter__(self) -> Self:
+        """Opens the stream.
+
+        Returns:
+            Self: The stream.
+        """
+        return self
+
+    async def __aexit__(self, *details: object) -> None:
+        """Closes the stream.
+
+        Args:
+            *details (Any): The exception details, ignored.
+        """
+        del details
+
+    def __aiter__(self) -> Any:
+        """Starts replaying the events.
+
+        Returns:
+            Any: An asynchronous iterator over the events.
+        """
+        return self._replay()
+
+    async def _replay(self) -> Any:
+        """Yields the events, or raises the prepared failure.
+
+        Yields:
+            Any: Each event.
+
+        Raises:
+            Exception: The prepared failure.
+        """
+        if self._turn.fails_with is not None:
+            raise self._turn.fails_with
+        for event in self._turn.events():
+            yield event
+
+    async def get_final_message(self) -> Any:
+        """Gives the finished message.
+
+        Returns:
+            Any: The message.
+        """
+        return self._turn.message()
+
+
+class FakeClaudeMessages:
+    """A stand-in for client.beta.messages that replays prepared answers in order.
+
+    Attributes:
+        turns: The answers still to give.
+        requests: The keyword arguments of every stream request, in order.
+    """
+
+    def __init__(self, turns: list[FakeTurn]):
+        """Keeps the answers.
+
+        Args:
+            turns (list[FakeTurn]): The answers, in order.
+        """
+        self.turns = list(turns)
+        self.requests = []
+
+    def stream(self, **request: Any) -> FakeStream:
+        """Records a request and replays the next answer.
+
+        Args:
+            **request (Any): The request's keyword arguments.
+
+        Returns:
+            FakeStream: The stream of the next answer.
+        """
+        self.requests.append(copy.deepcopy(request))
+        return FakeStream(self.turns.pop(0))
+
+
+class FakeClaudeClient:
+    """A stand-in for anthropic.AsyncAnthropic with only beta.messages.stream.
+
+    Attributes:
+        beta: Holds messages.
+        messages: The fake messages resource, for inspecting requests.
+    """
+
+    def __init__(self, turns: list[FakeTurn]):
+        """Prepares the answers.
+
+        Args:
+            turns (list[FakeTurn]): The answers, in order.
+        """
+        self.messages = FakeClaudeMessages(turns)
+        self.beta = types.SimpleNamespace(messages=self.messages)
+
+    async def close(self) -> None:
+        """Does nothing, as there is no connection."""

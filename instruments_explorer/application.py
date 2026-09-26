@@ -10,12 +10,15 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Sequence
 
+import anthropic
 import fastapi
 import httpx
 import starlette.middleware.gzip
 import starlette.middleware.sessions
 import uvicorn
 
+from instruments_explorer.assistant import assistant_services
+from instruments_explorer.assistant import tool_box
 from instruments_explorer.configuration import settings
 from instruments_explorer.configuration import (
     unified_broker_interface_configuration,
@@ -43,6 +46,7 @@ from instruments_explorer.market import live_quote_reader
 from instruments_explorer.market import quote_snapshot_reader
 from instruments_explorer.routes import auth_routes
 from instruments_explorer.routes import chart_routes
+from instruments_explorer.routes import chat_routes
 from instruments_explorer.routes import derivative_routes
 from instruments_explorer.routes import frontend_routes
 from instruments_explorer.routes import instrument_routes
@@ -59,8 +63,10 @@ from instruments_explorer.screener.conditions import condition_catalogue
 from instruments_explorer.security import authenticator
 from instruments_explorer.security import session_guard
 from instruments_explorer.security import websocket_origin_checker
+from instruments_explorer.storage import chat_usage_repository
 from instruments_explorer.storage import chroma_connection
 from instruments_explorer.storage import company_repository
+from instruments_explorer.storage import conversation_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import mongo_connection
@@ -207,6 +213,7 @@ class Application:
             snapshot_reader,
             self.time_source,
         )
+        self._chat_parts = self._build_chat()
         knowledge_parts = self._build_knowledge(client, companies, hub)
         screener_parts = self._build_screener(client, companies, hub)
         ubi_checker = health_checker.HealthChecker(
@@ -232,7 +239,28 @@ class Application:
             knowledge_parts,
             screener_parts,
             universe,
+            self._chat_parts,
             with_lifespan=True,
+        )
+
+    def _build_chat(self) -> chat_routes.ChatParts:
+        """Builds the chat assistant's stores, and its Claude client when an API key is set.
+
+        Returns:
+            chat_routes.ChatParts: The assistant's components.
+        """
+        explorer_settings = self.explorer_settings
+        client = None
+        if explorer_settings.assistant_configured():
+            client = anthropic.AsyncAnthropic(
+                api_key=explorer_settings.anthropic_api_key,
+            )
+        database = self._mongo.database()
+        return chat_routes.ChatParts(
+            client,
+            conversation_repository.ConversationRepository(database),
+            chat_usage_repository.ChatUsageRepository(database),
+            explorer_settings,
         )
 
     def _build_screener(
@@ -374,6 +402,7 @@ class Application:
         knowledge_parts: knowledge_routes.KnowledgeParts,
         screener_parts: screener_routes.ScreenerParts,
         universe: universe_service.UniverseService,
+        chat_parts: chat_routes.ChatParts,
         with_lifespan: bool,
     ) -> fastapi.FastAPI:
         """Assembles the FastAPI application from ready components.
@@ -390,6 +419,7 @@ class Application:
             knowledge_parts (knowledge_routes.KnowledgeParts): The knowledge pipeline's components.
             screener_parts (screener_routes.ScreenerParts): The screener's components.
             universe (universe_service.UniverseService): Lays out the 3D universe map.
+            chat_parts (chat_routes.ChatParts): The chat assistant's components.
             with_lifespan (bool): Whether start-up should open and refresh the index and start the quote reader, and shutdown close everything.
 
         Returns:
@@ -443,6 +473,19 @@ class Application:
         knowledge = knowledge_routes.KnowledgeRoutes(knowledge_parts, guard)
         screener = screener_routes.ScreenerRoutes(screener_parts, guard)
         universe_map = universe_routes.UniverseRoutes(universe, guard)
+        services = assistant_services.AssistantServices(
+            instruments,
+            charts,
+            derivatives,
+            knowledge,
+            screener,
+        )
+        chat = chat_routes.ChatRoutes(
+            chat_parts,
+            tool_box.ToolBox(services),
+            guard,
+            self.time_source,
+        )
         live = live_routes.LiveRoutes(
             hub,
             guard,
@@ -460,6 +503,7 @@ class Application:
         web_application.include_router(knowledge.router)
         web_application.include_router(screener.router)
         web_application.include_router(universe_map.router)
+        web_application.include_router(chat.router)
         web_application.include_router(live.router)
         web_application.include_router(frontend.router)
         return web_application
@@ -505,6 +549,8 @@ class Application:
             await asyncio.to_thread(self._mongo_reader.close)
             await self._mongo.close()
             await self._chroma.close()
+            if self._chat_parts.client is not None:
+                await self._chat_parts.client.close()
 
     async def _prepare_knowledge(self) -> None:
         """Creates the MongoDB indexes, and imports NSE's equity list and the Nifty Total Market industries the first time the application starts."""
@@ -512,6 +558,7 @@ class Application:
         try:
             await parts.companies.ensure_indexes()
             await parts.documents.ensure_indexes()
+            await self._chat_parts.conversations.ensure_indexes()
             counts = await parts.companies.counts()
             changed = False
             if counts['listed'] == 0:
