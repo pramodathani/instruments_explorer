@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 5 are done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 to 6 are done:
 
 | Phase | Contents |
 |---|---|
@@ -79,12 +79,18 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - `FetchJobRunner` runs one job at a time in the background, one step per source, so a failing site never stops the others. It saves each change to `fetch_jobs` and broadcasts it on `/api/live` as a `fetch_job` event. `KnowledgeScheduler` repeats the news sources for fetched companies every `INSTRUMENTS_EXPLORER_KNOWLEDGE_REFRESH_HOURS`.
   - `KnowledgeService` merges profile fields into `companies` with `$set` (sources never overwrite each other), stores documents in `documents`, and embeds them in the ChromaDB collection `company_documents` with the local all-MiniLM-L6-v2 model (downloaded once to `~/.cache/chroma`).
   - The index file carries a `schema_version`; a file built by older code is rebuilt automatically instead of failing.
+- **Screener** (`screener/`, `storage/screener_repository.py`, `routes/screener_routes.py`).
+  - Universes are the Nifty Total Market (about 750 stocks, the default) and all NSE equities in NSE's list. `ListingImporter.import_sectors` loads the Nifty Total Market constituents' industries into `companies` (`nse_industry`, `total_market`), which also feed the index's `sector` column and Explore's sector filter.
+  - `ScreenerSnapshotJob` reads 400 days of daily candles per stock from ubi (four at a time), `StockMetrics` computes returns, the 52-week range, SMAs, RSI, MACD, crossovers, ADX, NATR, %B and volume ratios, and one row per stock goes to `screener_snapshots`. A run of 750 stocks took under five seconds on 2026-09-26 because ubi caches candles.
+  - `ScreenerScheduler` starts a run of the default universe after 09:00 India time when the last finished run is over 20 hours old.
+  - Each condition is its own class in `screener/conditions/`; requests use the same `key:param:param` form as indicators. `ScreenerService` filters stored rows only, never calling ubi, and groups matches by sector for the treemap.
 - **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
   - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
   - The derivatives page (`derivatives/`) keeps the underlying, expiry, tab and strike range in the page address and refreshes the chain every five seconds while the tab is visible. Its 3D surface is `three/surfaceScene.ts`.
   - The knowledge page (`knowledge/`) and each instrument page's `CompanyPanel` follow fetch jobs live through `LiveSocket.onFetchJob`.
+  - The screener page (`screener/`) keeps its universe, conditions, sectors and sort in the page address, follows figure runs through `LiveSocket.onScreenerJob`, and draws the heatmap with Highcharts' treemap module, which attaches to the `highstock` bundle when imported after it.
   - The chart (`charts/`) is Highcharts Stock, loaded lazily with the instrument page's `ChartPanel`. Its interval, period, adjustment, 2D/3D view and indicators live in the page address. `ChartOptionsBuilder` lays out the price pane, the volume pane and one pane per panel indicator. `LiveCandleMerger` adds today's candle from the live quote when ubi's stored history stops before today.
   - Import the React wrapper as `import { HighchartsReact } from 'highcharts-react-official'`. The default import resolves to the CommonJS module object under Vite and crashes React with error 130.
   - Highcharts series and axes share one id namespace, so axes are named `price-axis`, `volume-axis` and `panel-axis-<indicator id>`.
