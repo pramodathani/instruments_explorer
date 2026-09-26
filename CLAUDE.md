@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 instruments_explorer is a password-protected web application for exploring the instruments that the sibling project unified_broker_interface (ubi, `~/Projects/unified_broker_interface`) knows about. It shows instruments, quotes, candles and TA-Lib indicators taken from ubi, together with company data that it downloads from the internet and stores in its own MongoDB and ChromaDB. It also has a Claude chat assistant that can drive the site. The stack and conventions are copied from the sibling projects `sridhara` and `system_monitor`.
 
-The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phase 1 (the scaffold) is done:
+The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-lagoon.md`. The work is split into eight phases, and phases 1 and 2 are done:
 
 | Phase | Contents |
 |---|---|
@@ -49,8 +49,20 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
 - **Security.** `security/` holds the argon2 password check with lockout, the signed session cookie, and the `X-Requested-With: instruments-explorer` header that every POST must carry.
 - **Settings.** All settings come from `INSTRUMENTS_EXPLORER_*` variables through `configuration/settings.py`. `.env.example` lists them all.
 - **Own stores.** `docker-compose.yml` runs MongoDB (host port 3003) and ChromaDB (host port 3004) on their own Docker network, `instruments_explorer_network`, bound to 127.0.0.1. `storage/` holds one connection class per store; each has a `check()` used by `/api/status`.
-- **ubi (from phase 2).** ubi is reached only through its published host ports: the REST API at 127.0.0.1:8080 and Redis at port 1002. The access token comes from ubi's stored login, following sridhara's `AccessTokenProvider`.
+- **ubi access** (`unified_broker_interface/`). ubi is reached only through its published host ports: the REST API at 127.0.0.1:8080, Redis at 1002 and MongoDB at 1003. Their addresses and credentials are read from ubi's own `.env` by `configuration/unified_broker_interface_configuration.py`, so no copy of ubi's passwords is kept here.
+  - `AccessTokenProvider` uses the token ubi has stored in Redis (or MongoDB) and connects only when none is usable. `RedisReader` and `MongoReader` expose read commands only.
+  - `rest_client.py` is read-only: greeting, segments, the streamed master, details, additional details and quote.
+  - These modules, their error classes and their tests are copied from sridhara; keep them in step with sridhara when fixing either.
+- **Instrument index** (`instruments/`).
+  - `InstrumentIndexBuilder` streams ubi's `master` (about 540,000 instruments, 127 MB, 7 seconds) into `data/instruments/instruments-<mapping date>.sqlite`. It keeps the roughly 236,000 that have not expired, with an asset class, a readable name and full-text search words for each.
+  - `InstrumentIndex.search()` returns one page of results, the total and a count for every filter value. Each filter's counts are taken with every other filter applied but not its own.
+  - `InstrumentIndexMaintainer` checks ubi's mapping date every ten minutes and swaps in a new index when it changes.
+  - Filter column names come only from `FACET_COLUMNS`, and every value is a bound parameter.
+  - ubi has no bulk route for lot sizes or company names, so they are not filterable. Lot size comes from ubi's `details` on the instrument page, and company names join the index in phase 5.
+- **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
+  - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
+  - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
   - Behaviour lives in classes (`ApiClient`, `ThemeController`, `MotionController`, `SceneController` and its subclasses). React components are thin.
   - `AppLayout` wraps every page with the three.js backdrop, the header, a page entrance animation and the chat panel. It shares `/api/status` with pages through the router's outlet context (`layout/layoutContext.ts`).
 - **three.js.**
@@ -72,7 +84,8 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - Fetchers respect robots.txt and a per-host rate limit.
   - Paywalled sites such as Bloomberg and The Economist contribute only their public RSS headlines and summaries.
   - Web search uses official search APIs, never scraped result pages.
-- **Browser checks.** Use a throwaway password passed through the environment of a single run, never written to `.env`.
+- **Browser checks.** Use a throwaway password passed through the environment of a single run, never written to `.env`. The user runs the app as a systemd user service on port 8100, so run the check copy on another port such as 8101 and open it at `127.0.0.1`, not `localhost`. Browser cookies ignore the port, so logging in on `localhost:8101` would log the user out on `localhost:8100`.
+- **Restarting.** After backend changes, restart the user's service with `systemctl --user restart instruments-explorer`. A frontend rebuild needs no restart.
 - **Sources of truth.** Highcharts is used under its non-commercial licence. The ubi REST reference is `~/Projects/unified_broker_interface/docs/rest-api/`.
 
 ## Conventions
