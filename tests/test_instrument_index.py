@@ -1,6 +1,7 @@
 """Tests for building, searching and maintaining the instrument index."""
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -313,3 +314,34 @@ class TestInstrumentIndexMaintainer:
         maintainer.open_newest_existing()
         assert maintainer.current_index.mapping_date == '2026-09-25'
         assert client.master_downloads == 0
+
+    def test_older_schema_is_rebuilt(self, tmp_path: Path) -> None:
+        """Checks that an index file from older code is rebuilt instead of failing.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        index, client = IndexMaker().build(tmp_path)
+        index.close()
+        connection = sqlite3.connect(index.path)
+        with connection:
+            connection.execute(
+                "UPDATE index_details SET value = '1' WHERE name = 'schema_version'"
+            )
+        connection.close()
+        with pytest.raises(sqlite3.DatabaseError) as raised:
+            instrument_index.InstrumentIndex.open(index.path)
+        assert 'older version' in str(raised.value.__cause__)
+        time_source = fakes.FixedClock(fakes.TODAY_EPOCH)
+        maintainer = instrument_index_maintainer.InstrumentIndexMaintainer(
+            client,
+            instrument_index_builder.InstrumentIndexBuilder(
+                client,
+                tmp_path,
+                time_source,
+            ),
+            time_source,
+        )
+        asyncio.run(maintainer.refresh())
+        assert maintainer.status()['state'] == 'ready'
+        assert client.master_downloads == 2

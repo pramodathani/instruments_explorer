@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Self
 
+from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import search_query_parser
 
 FACET_COLUMNS = [
@@ -43,6 +44,7 @@ _RESULT_COLUMNS = [
     'symbol',
     'underlying_symbol',
     'display_name',
+    'company_name',
     'expiry_date',
     'strike_price',
     'option_type',
@@ -173,7 +175,7 @@ class InstrumentIndex:
             connection (sqlite3.Connection): A read-only connection to it.
 
         Raises:
-            sqlite3.Error: The index details could not be read.
+            sqlite3.Error: The index details could not be read, or the file was built with another schema version.
             KeyError: The index details are incomplete.
         """
         self.path = path
@@ -184,6 +186,13 @@ class InstrumentIndex:
         details = dict(
             connection.execute('SELECT name, value FROM index_details')
         )
+        if (
+            details.get('schema_version')
+            != instrument_index_builder.SCHEMA_VERSION
+        ):
+            raise sqlite3.DatabaseError(
+                f'The instrument index {path} was built by an older version and must be rebuilt.'
+            )
         self.mapping_date = details['mapping_date']
         self.instrument_count = int(details['instrument_count'])
 

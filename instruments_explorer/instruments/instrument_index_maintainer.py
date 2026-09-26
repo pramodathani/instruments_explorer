@@ -13,6 +13,7 @@ import asyncio
 import datetime
 import logging
 import sqlite3
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from instruments_explorer.instruments import instrument_index
@@ -41,6 +42,7 @@ class InstrumentIndexMaintainer:
         builder: instrument_index_builder.InstrumentIndexBuilder,
         time_source: clock.SystemClock,
         check_interval_seconds: float = 600.0,
+        name_source: Callable[[], Awaitable[dict[str, str]]] | None = None,
     ):
         """Creates the maintainer without opening anything.
 
@@ -49,6 +51,7 @@ class InstrumentIndexMaintainer:
             builder (instrument_index_builder.InstrumentIndexBuilder): Builds index files.
             time_source (clock.SystemClock): The source of today's date.
             check_interval_seconds (float): How long to wait between checks, in seconds.
+            name_source (Callable[[], Awaitable[dict[str, str]]] | None): Reads company names by symbol before each build, or None to build without names.
         """
         self.check_interval_seconds = check_interval_seconds
         self.current_index = None
@@ -57,6 +60,8 @@ class InstrumentIndexMaintainer:
         self._client = client
         self._builder = builder
         self._time_source = time_source
+        self._name_source = name_source
+        self._rebuild_requested = False
         self._lock = asyncio.Lock()
 
     def today(self) -> str:
@@ -113,6 +118,11 @@ class InstrumentIndexMaintainer:
                     self.state = 'ready'
                 _LOGGER.warning('Instrument index refresh failed: %s', error)
 
+    async def rebuild(self) -> None:
+        """Builds the index again even though the mapping date has not changed, such as after company names were imported."""
+        self._rebuild_requested = True
+        await self.refresh()
+
     def status(self) -> dict[str, Any]:
         """Describes the index for the browser.
 
@@ -147,18 +157,39 @@ class InstrumentIndexMaintainer:
         segments = await self._client.instrument_segments()
         mapping_date = segments.get('mapping_date')
         current = self.current_index
-        if current is not None and current.mapping_date == mapping_date:
+        rebuild = self._rebuild_requested
+        if (
+            current is not None
+            and current.mapping_date == mapping_date
+            and not rebuild
+        ):
             self.state = 'ready'
             self.last_error = None
             return
         path = self._builder.path_for(str(mapping_date))
-        if not path.is_file():
+        if rebuild or not path.is_file():
             self.state = 'building'
-            path, _ = await self._builder.build()
-        new_index = await asyncio.to_thread(
-            instrument_index.InstrumentIndex.open,
-            path,
-        )
+            names = {}
+            if self._name_source is not None:
+                names = await self._name_source()
+            path, _ = await self._builder.build(names)
+            self._rebuild_requested = False
+        try:
+            new_index = await asyncio.to_thread(
+                instrument_index.InstrumentIndex.open,
+                path,
+            )
+        except sqlite3.DatabaseError as error:
+            _LOGGER.info('Rebuilding the instrument index: %s', error)
+            self.state = 'building'
+            names = {}
+            if self._name_source is not None:
+                names = await self._name_source()
+            path, _ = await self._builder.build(names)
+            new_index = await asyncio.to_thread(
+                instrument_index.InstrumentIndex.open,
+                path,
+            )
         self._swap(new_index)
         self.last_error = None
         await asyncio.to_thread(self._remove_old_files)
