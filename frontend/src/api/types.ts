@@ -379,7 +379,89 @@ export interface InstrumentCompany {
   company: CompanyIdentity | null;
   reason: string | null;
   profile: CompanyProfile | null;
+  key_people: KeyPeople | null;
+  headquarters: Headquarters | null;
+  can_read_people: boolean;
   documents: KnowledgeDocument[];
+}
+
+/** One role a person holds, as one source reports it. */
+export interface KeyPersonRole {
+  role: string;
+  source: string;
+}
+
+/** A key person merged across sources. */
+export interface KeyPerson {
+  name: string;
+  roles: KeyPersonRole[];
+  sources: string[];
+  age?: number | null;
+  din?: string | null;
+  appointed_on?: string | null;
+}
+
+/** A company's executives and board, merged across Yahoo, the registry and uploads. */
+export interface KeyPeople {
+  executives: KeyPerson[];
+  board: KeyPerson[];
+}
+
+/** Where a headquarters sits on the map. */
+export interface MapLocation {
+  latitude: number;
+  longitude: number;
+  precision: 'postcode' | 'city';
+  place: string;
+}
+
+/** A company's headquarters address, placed on the map when possible. */
+export interface Headquarters {
+  address_lines: string[];
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+  phone: string | null;
+  geocoder_ready: boolean;
+  location: MapLocation | null;
+}
+
+/** A company placed on the Earth globe. */
+export interface EarthCompany {
+  company_key: string;
+  name: string;
+  symbol: string;
+  sector: string | null;
+  city: string | null;
+  address: string;
+  latitude: number;
+  longitude: number;
+  precision: 'postcode' | 'city';
+  instrument_id: string | null;
+}
+
+/** The sweep that fetches every index company's headquarters. */
+export interface LocateSweep {
+  status: 'running' | 'done' | 'cancelled';
+  total: number;
+  done: number;
+  located: number;
+  skipped: number;
+  failed: number;
+  started_at: number;
+  finished_at: number | null;
+}
+
+/** The Earth page's companies and what is still missing. */
+export interface EarthCompanies {
+  companies: EarthCompany[];
+  with_address: number;
+  unplaced: number;
+  geocoder_ready: boolean;
+  download_url: string;
+  index_companies: number;
+  sweep: LocateSweep | null;
 }
 
 /** One passage found by meaning. */

@@ -1,11 +1,13 @@
-import { type ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, apiClient } from '../api/apiClient';
-import type { FetchJob, InstrumentCompany, KnowledgeSource } from '../api/types';
+import type { EarthCompany, FetchJob, InstrumentCompany, KnowledgeSource } from '../api/types';
 import { TiltCard } from '../components/TiltCard';
 import { liveSocket } from '../live/liveServices';
 import { formatter } from '../utilities/formatter';
+import { HeadquartersSection } from './HeadquartersSection';
 import { JobProgress } from './JobProgress';
+import { KeyPeopleSection } from './KeyPeopleSection';
 import { KnowledgeSearch } from './KnowledgeSearch';
 
 const DOCUMENTS_SHOWN = 12;
@@ -112,6 +114,25 @@ export function CompanyPanel(props: CompanyPanelProps) {
   }, []);
 
   const companyKey = data?.company?.company_key ?? null;
+
+  const mapDot = useMemo((): EarthCompany | null => {
+    const location = data?.headquarters?.location;
+    if (data === null || data.company === null || location === undefined || location === null) {
+      return null;
+    }
+    return {
+      company_key: data.company.company_key,
+      name: data.profile?.name ?? data.company.name,
+      symbol: data.company.symbol,
+      sector: data.profile?.sector ?? null,
+      city: data.headquarters?.city ?? null,
+      address: (data.headquarters?.address_lines ?? []).join(', '),
+      latitude: location.latitude,
+      longitude: location.longitude,
+      precision: location.precision,
+      instrument_id: instrumentId,
+    };
+  }, [data, instrumentId]);
 
   useEffect(() => {
     if (companyKey === null) {
@@ -237,7 +258,7 @@ export function CompanyPanel(props: CompanyPanelProps) {
       {job !== null ? <JobProgress job={job} showCompany={false} /> : null}
       {!fetchedBefore && job === null ? (
         <p className="muted">
-          Nothing has been fetched for this company yet. Fetching reads NSE announcements, Yahoo Finance, Screener.in and news, which takes about twenty seconds.
+          Nothing has been fetched for this company yet. Fetching reads NSE announcements, Yahoo Finance (with the headquarters and officers), Screener.in, the board of directors from the company registry, and news, which takes about thirty seconds.
         </p>
       ) : null}
       <div className="company-grid">
@@ -284,6 +305,16 @@ export function CompanyPanel(props: CompanyPanelProps) {
           </section>
         ) : null}
       </div>
+      {data.headquarters !== null ? <HeadquartersSection headquarters={data.headquarters} company={mapDot} instrumentId={instrumentId} /> : null}
+      {data.key_people !== null ? (
+        <KeyPeopleSection
+          instrumentId={instrumentId}
+          keyPeople={data.key_people}
+          uploads={data.documents.filter((document) => document.source === 'upload')}
+          canRead={data.can_read_people}
+          onChanged={load}
+        />
+      ) : null}
       <section className="company-ask">
         <h3 className="section-heading">Ask about {data.company.symbol}</h3>
         <KnowledgeSearch companyKey={data.company.company_key} placeholder="Such as “what does the company earn from telecom?” or “recent dividend”" />

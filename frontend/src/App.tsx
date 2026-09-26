@@ -38,6 +38,13 @@ const ChatPage = lazy(async () => {
   };
 });
 
+const EarthPage = lazy(async () => {
+  const module = await import('./earth/EarthPage');
+  return {
+    default: module.EarthPage,
+  };
+});
+
 const UniversePage = lazy(async () => {
   const module = await import('./universe/UniversePage');
   return {
@@ -95,6 +102,14 @@ export function App() {
             }
           />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="earth"
+            element={
+              <Suspense fallback={<p className="muted">Loading the globe…</p>}>
+                <EarthPage />
+              </Suspense>
+            }
+          />
           <Route
             path="chat"
             element={

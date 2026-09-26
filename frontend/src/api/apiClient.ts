@@ -22,6 +22,9 @@ import type {
   SearchResponse,
   StatusDocument,
   UniverseMap,
+  EarthCompanies,
+  KeyPeople,
+  LocateSweep,
   ChatConversation,
   ChatStreamEvent,
   ChatTranscriptDocument,
@@ -348,6 +351,56 @@ export class ApiClient {
       credentials: 'same-origin',
     });
     return (await this.readJson(response)) as unknown as InstrumentCompany;
+  }
+
+  /**
+   * Reads the key people named in one of the company's uploaded documents, with Claude.
+   * @param instrumentId The instrument whose company it is.
+   * @param documentId The uploaded document.
+   * @returns How many people were read, and the merged key people.
+   * @throws ApiError with 503 without an API key, 400 when the document names nobody, 429 when today's limit is used up.
+   */
+  async extractKeyPeople(instrumentId: string, documentId: string): Promise<{ found: number; key_people: KeyPeople }> {
+    const response = await fetch(`/api/knowledge/instruments/${encodeURIComponent(instrumentId)}/key-people/extract`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: JSON.stringify({
+        document_id: documentId,
+      }),
+    });
+    return (await this.readJson(response)) as unknown as { found: number; key_people: KeyPeople };
+  }
+
+  /**
+   * Fetches every company whose headquarters can be placed on the globe.
+   * @returns The companies and what is missing.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchEarthCompanies(): Promise<EarthCompanies> {
+    const response = await fetch('/api/earth/companies', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as EarthCompanies;
+  }
+
+  /**
+   * Starts fetching the headquarters of every Nifty Total Market company not yet located.
+   * @returns The sweep's state.
+   * @throws ApiError when the sweep is not set up.
+   */
+  async startLocateSweep(): Promise<LocateSweep> {
+    const response = await fetch('/api/earth/locate', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+    });
+    return (await this.readJson(response)) as unknown as LocateSweep;
   }
 
   /**

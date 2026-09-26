@@ -1,12 +1,12 @@
 import { apiClient } from '../api/apiClient';
-import type { FetchJob, Quote, ScreenerRun } from '../api/types';
+import type { FetchJob, LocateSweep, Quote, ScreenerRun } from '../api/types';
 import type { QuoteStore } from './quoteStore';
 
 /** A message the server sends over /api/live. */
 interface ServerMessage {
   type: string;
   quotes?: Quote[];
-  job?: FetchJob | ScreenerRun;
+  job?: FetchJob | ScreenerRun | LocateSweep;
   message?: string;
 }
 
@@ -27,6 +27,7 @@ export class LiveSocket {
   private readonly quoteStore: QuoteStore;
   private readonly jobListeners = new Set<(job: FetchJob) => void>();
   private readonly screenerListeners = new Set<(run: ScreenerRun) => void>();
+  private readonly locateListeners = new Set<(sweep: LocateSweep) => void>();
 
   /**
    * Creates the socket without connecting.
@@ -116,6 +117,18 @@ export class LiveSocket {
     };
   }
 
+  /**
+   * Follows the sweep that locates every index company's headquarters.
+   * @param listener Called with the sweep's state after each change.
+   * @returns A function that stops listening.
+   */
+  onLocateJob(listener: (sweep: LocateSweep) => void): () => void {
+    this.locateListeners.add(listener);
+    return () => {
+      this.locateListeners.delete(listener);
+    };
+  }
+
   /** Opens the WebSocket and wires its events. */
   private connect(): void {
     const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -189,6 +202,10 @@ export class LiveSocket {
     } else if (message.type === 'screener_job' && message.job !== undefined) {
       for (const listener of this.screenerListeners) {
         listener(message.job as ScreenerRun);
+      }
+    } else if (message.type === 'locate_job' && message.job !== undefined) {
+      for (const listener of this.locateListeners) {
+        listener(message.job as LocateSweep);
       }
     }
   }

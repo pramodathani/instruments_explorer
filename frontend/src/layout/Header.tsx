@@ -36,6 +36,11 @@ const NAVIGATION: NavigationItem[] = [
     icon: 'universe',
   },
   {
+    path: '/earth',
+    label: 'Earth',
+    icon: 'earth',
+  },
+  {
     path: '/screener',
     label: 'Screener',
     icon: 'screener',

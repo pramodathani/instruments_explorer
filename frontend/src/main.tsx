@@ -18,6 +18,7 @@ import './styles/derivatives.css';
 import './styles/knowledge.css';
 import './styles/screener.css';
 import './styles/universe.css';
+import './styles/earth.css';
 import './styles/settings.css';
 import './styles/chat.css';
 import './styles/login.css';

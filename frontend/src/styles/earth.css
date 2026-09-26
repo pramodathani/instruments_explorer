@@ -1,0 +1,161 @@
+.earth-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  border-color: var(--warning);
+}
+
+.earth-notice p {
+  margin: 0;
+}
+
+.earth-notice pre {
+  margin: 0;
+  padding: 10px;
+  overflow-x: auto;
+  border-radius: var(--radius-small);
+  background: var(--data-panel);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.earth-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.earth-search {
+  position: relative;
+  flex: 1 1 240px;
+}
+
+.earth-search .input {
+  width: 100%;
+}
+
+.earth-sweep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-small);
+}
+
+.earth-view {
+  height: calc(100vh - var(--header-height) - 300px);
+  min-height: 480px;
+  padding: 0;
+  overflow: clip;
+  background: #05070d;
+}
+
+.earth-hint {
+  margin-top: 8px;
+  font-size: var(--font-size-small);
+}
+
+.earth-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #202124;
+  font-family: var(--font-family);
+  font-size: 12px;
+}
+
+.earth-popup strong {
+  font-size: 13px;
+}
+
+.earth-popup-facts {
+  color: #5f6368;
+}
+
+.earth-popup-address {
+  color: #5f6368;
+  font-size: 11px;
+}
+
+.earth-popup .button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.headquarters-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.headquarters-address {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.headquarters-earth {
+  margin-top: 8px;
+}
+
+.headquarters-map {
+  height: 280px;
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #05070d;
+}
+
+.key-people {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.people-group-title {
+  margin: 0 0 6px;
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
+
+.people-table td {
+  vertical-align: top;
+}
+
+.people-name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.people-role {
+  margin-bottom: 2px;
+}
+
+.people-facts {
+  font-size: var(--font-size-tiny);
+  white-space: nowrap;
+}
+
+.key-people-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-people-read select {
+  max-width: 320px;
+}
+
+@media (max-width: 800px) {
+  .headquarters-layout {
+    grid-template-columns: 1fr;
+  }
+}
