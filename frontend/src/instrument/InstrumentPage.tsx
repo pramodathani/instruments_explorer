@@ -17,6 +17,13 @@ const ChartPanel = lazy(async () => {
   };
 });
 
+const CompanyPanel = lazy(async () => {
+  const module = await import('../knowledge/CompanyPanel');
+  return {
+    default: module.CompanyPanel,
+  };
+});
+
 const ATTRIBUTE_LABELS: Record<string, string> = {
   isin: 'ISIN',
   display_name: 'Name',
@@ -114,6 +121,9 @@ export function InstrumentPage() {
         <DepthTable quote={quote} />
         <Suspense fallback={<div className="card chart-card chart-card-loading">Loading the chart…</div>}>
           <ChartPanel instrumentId={instrumentId} quote={quote} />
+        </Suspense>
+        <Suspense fallback={<div className="card company-panel">Loading the company…</div>}>
+          <CompanyPanel instrumentId={instrumentId} />
         </Suspense>
         <TiltCard>
           <div className="tilt-lift">

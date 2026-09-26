@@ -1,11 +1,12 @@
 import { apiClient } from '../api/apiClient';
-import type { Quote } from '../api/types';
+import type { FetchJob, Quote } from '../api/types';
 import type { QuoteStore } from './quoteStore';
 
 /** A message the server sends over /api/live. */
 interface ServerMessage {
   type: string;
   quotes?: Quote[];
+  job?: FetchJob;
   message?: string;
 }
 
@@ -24,6 +25,7 @@ export class LiveSocket {
   private running = false;
   private onLoggedOut: () => void = () => undefined;
   private readonly quoteStore: QuoteStore;
+  private readonly jobListeners = new Set<(job: FetchJob) => void>();
 
   /**
    * Creates the socket without connecting.
@@ -87,6 +89,18 @@ export class LiveSocket {
       }
     }
     this.synchronise();
+  }
+
+  /**
+   * Listens for knowledge fetch jobs' progress.
+   * @param listener Called with the job after every change.
+   * @returns A function that stops listening.
+   */
+  onFetchJob(listener: (job: FetchJob) => void): () => void {
+    this.jobListeners.add(listener);
+    return () => {
+      this.jobListeners.delete(listener);
+    };
   }
 
   /** Opens the WebSocket and wires its events. */
@@ -155,6 +169,10 @@ export class LiveSocket {
     }
     if (message.type === 'quotes' && message.quotes !== undefined) {
       this.quoteStore.update(message.quotes);
+    } else if (message.type === 'fetch_job' && message.job !== undefined) {
+      for (const listener of this.jobListeners) {
+        listener(message.job);
+      }
     }
   }
 

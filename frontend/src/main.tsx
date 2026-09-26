@@ -15,6 +15,7 @@ import './styles/explore.css';
 import './styles/instrument.css';
 import './styles/charts.css';
 import './styles/derivatives.css';
+import './styles/knowledge.css';
 import './styles/chat.css';
 import './styles/login.css';
 import { motionController } from './utilities/motionController';

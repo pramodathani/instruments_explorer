@@ -40,6 +40,17 @@ const OPTION_TYPE_LABELS: Record<string, string> = {
   PE: 'Puts (PE)',
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  nse_announcements: 'NSE announcement',
+  yahoo: 'Yahoo Finance',
+  screener: 'Screener.in',
+  wikipedia: 'Wikipedia',
+  rss_news: 'News feed',
+  bing_news: 'Bing News',
+  google_search: 'Web search',
+  upload: 'Your upload',
+};
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** Formats numbers, prices, dates and ubi's names the way the pages show them. */
@@ -179,6 +190,31 @@ export class Formatter {
     return new Date(epochSeconds * 1000).toLocaleTimeString('en-IN', {
       hour12: false,
     });
+  }
+
+  /**
+   * Formats an epoch time as a date and time of day.
+   * @param epochSeconds The time in epoch seconds, or null.
+   * @returns The moment such as "25 Sep 2026, 22:49", or an empty string for null.
+   */
+  dateTime(epochSeconds: number | null | undefined): string {
+    if (epochSeconds === null || epochSeconds === undefined) {
+      return '';
+    }
+    const moment = new Date(epochSeconds * 1000);
+    const day = String(moment.getDate()).padStart(2, '0');
+    const hours = String(moment.getHours()).padStart(2, '0');
+    const minutes = String(moment.getMinutes()).padStart(2, '0');
+    return `${day} ${MONTHS[moment.getMonth()]} ${moment.getFullYear()}, ${hours}:${minutes}`;
+  }
+
+  /**
+   * Names a knowledge source for display.
+   * @param key The source's key, such as "rss_news".
+   * @returns A readable name, such as "News feed".
+   */
+  source(key: string): string {
+    return SOURCE_LABELS[key] ?? key;
   }
 
   /**

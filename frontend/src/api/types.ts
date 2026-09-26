@@ -48,6 +48,7 @@ export interface InstrumentRecord {
   symbol: string | null;
   underlying_symbol: string | null;
   display_name: string;
+  company_name: string | null;
   expiry_date: string | null;
   strike_price: number | null;
   option_type: 'CE' | 'PE' | null;
@@ -292,4 +293,115 @@ export interface VolatilitySurface {
   }[];
   strikes: number[];
   volatility: (number | null)[][];
+}
+
+/** One source of company knowledge and whether it can run. */
+export interface KnowledgeSource {
+  key: string;
+  label: string;
+  description: string;
+  news: boolean;
+  available: boolean;
+  reason: string;
+}
+
+/** Who a company is. */
+export interface CompanyIdentity {
+  company_key: string;
+  name: string;
+  isin: string | null;
+  exchange: string;
+  symbol: string;
+}
+
+/** One step of a fetch job: one source's run. */
+export interface FetchJobStep {
+  source: string;
+  label: string;
+  status: 'queued' | 'running' | 'done' | 'failed' | 'skipped';
+  message: string;
+  documents: number;
+  new: number;
+}
+
+/** One run of the knowledge fetchers for a company. */
+export interface FetchJob {
+  job_id: string;
+  company: CompanyIdentity;
+  reason: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  steps: FetchJobStep[];
+  created_at: number;
+  finished_at: number | null;
+}
+
+/** Everything stored about a company, merged from its sources. */
+export interface CompanyProfile {
+  company_key: string;
+  name?: string;
+  isin?: string;
+  symbol?: string;
+  exchange?: string;
+  listed_on?: string | null;
+  face_value?: number | null;
+  sector?: string;
+  industry?: string;
+  classification?: string[];
+  website?: string;
+  employees?: number;
+  city?: string;
+  country?: string;
+  about?: string;
+  pros?: string[];
+  cons?: string[];
+  screener_ratios?: Record<string, string>;
+  fundamentals?: Record<string, number>;
+  wikipedia_title?: string;
+  sources?: Record<string, { fetched_at: number; message: string }>;
+  updated_at?: number;
+}
+
+/** A stored document, without its full text. */
+export interface KnowledgeDocument {
+  document_id: string;
+  company_key: string;
+  source: string;
+  title: string;
+  url: string;
+  published_at: number | null;
+  fetched_at: number;
+  text?: string;
+}
+
+/** The answer of /api/knowledge/instruments/{id}. */
+export interface InstrumentCompany {
+  company: CompanyIdentity | null;
+  reason: string | null;
+  profile: CompanyProfile | null;
+  documents: KnowledgeDocument[];
+}
+
+/** One passage found by meaning. */
+export interface KnowledgeHit {
+  text: string;
+  score: number;
+  document_id: string;
+  company_key: string;
+  symbol: string | null;
+  source: string;
+  title: string;
+  url: string | null;
+  published_at: number | null;
+}
+
+/** The answer of /api/knowledge/overview. */
+export interface KnowledgeOverview {
+  counts: {
+    listed: number;
+    fetched: number;
+    documents: number;
+    chunks: number | null;
+  };
+  sources: KnowledgeSource[];
+  jobs: FetchJob[];
 }

@@ -1,0 +1,322 @@
+.company-panel {
+  grid-column: 1 / -1;
+  background: var(--surface-solid);
+  backdrop-filter: none;
+}
+
+.company-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.company-name {
+  margin-bottom: 6px;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.company-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.company-classification {
+  color: var(--accent);
+}
+
+.company-fetch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.company-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+}
+
+.source-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-small);
+}
+
+.source-choice input {
+  accent-color: var(--accent);
+}
+
+.source-unavailable {
+  opacity: 0.45;
+}
+
+.company-updated {
+  font-size: 11px;
+}
+
+.company-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+  margin: 8px 0 12px;
+}
+
+.pros-cons {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pros-cons li {
+  position: relative;
+  margin-bottom: 6px;
+  padding-left: 18px;
+}
+
+.pros-cons li::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+
+.pro::before {
+  content: '+';
+  color: var(--up);
+}
+
+.con::before {
+  content: '−';
+  color: var(--down);
+}
+
+.company-ask {
+  margin-bottom: 14px;
+}
+
+.upload-button {
+  cursor: pointer;
+}
+
+.documents-table td {
+  white-space: normal;
+}
+
+.document-title a {
+  color: var(--ink);
+}
+
+.document-title a:hover {
+  color: var(--accent);
+}
+
+.job {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--data-panel);
+}
+
+.job-running {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 1px var(--warning-tint);
+}
+
+.job-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.job-heading .status-badge {
+  margin-left: auto;
+}
+
+.job-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-step {
+  display: grid;
+  grid-template-columns: 96px 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  animation: page-fade 0.3s both;
+}
+
+.job-step-message {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-step-running .status-badge {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.knowledge-search-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-muted);
+}
+
+.knowledge-hits {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-hit {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--data-panel);
+  animation: row-enter 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.knowledge-hit-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.knowledge-hit-title {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.knowledge-score {
+  display: inline-block;
+  width: 48px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--gridline);
+}
+
+.knowledge-score span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--second), var(--accent));
+}
+
+.knowledge-hit-text {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.knowledge-document-text {
+  max-height: 320px;
+  margin: 8px 0 0;
+  overflow: auto;
+  font-family: var(--font-family);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--accent);
+}
+
+.knowledge-search-card {
+  background: var(--surface-solid);
+}
+
+.knowledge-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.knowledge-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.source-list,
+.fetched-companies {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.source-list .card-title {
+  margin-bottom: 2px;
+}
+
+.source-list p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.fetched-companies li {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--gridline);
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .knowledge-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .company-fetch {
+    align-items: flex-start;
+  }
+
+  .job-step {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+
+  .job-step-message {
+    grid-column: 1 / -1;
+  }
+}

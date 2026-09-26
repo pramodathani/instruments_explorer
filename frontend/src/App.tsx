@@ -17,6 +17,13 @@ const DerivativesPage = lazy(async () => {
   };
 });
 
+const KnowledgePage = lazy(async () => {
+  const module = await import('./knowledge/KnowledgePage');
+  return {
+    default: module.KnowledgePage,
+  };
+});
+
 type SessionState = 'checking' | 'logged-out' | 'logged-in';
 
 /**
@@ -90,16 +97,9 @@ export function App() {
           <Route
             path="knowledge"
             element={
-              <PlannedPage
-                title="Knowledge"
-                description="Company and instrument information gathered from the internet and your own documents."
-                phase={5}
-                items={[
-                  'Fetchers for NSE, BSE, yfinance, Wikipedia, Screener.in, news feeds and web search.',
-                  'Document upload for PDFs, web pages and notes.',
-                  'Semantic search across everything, stored in MongoDB and ChromaDB.',
-                ]}
-              />
+              <Suspense fallback={<p className="muted">Loading the knowledge page…</p>}>
+                <KnowledgePage />
+              </Suspense>
             }
           />
           <Route path="*" element={<NotFoundPage />} />

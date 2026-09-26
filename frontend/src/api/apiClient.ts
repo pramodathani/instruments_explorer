@@ -1,5 +1,11 @@
 import type {
   ChartResponse,
+  CompanyProfile,
+  FetchJob,
+  InstrumentCompany,
+  KnowledgeDocument,
+  KnowledgeHit,
+  KnowledgeOverview,
   ExpiryDescription,
   OptionChain,
   Underlying,
@@ -276,6 +282,140 @@ export class ApiClient {
       signal,
     });
     return (await this.readJson(response)) as unknown as VolatilitySurface;
+  }
+
+  /**
+   * Fetches the knowledge counts, sources and latest jobs.
+   * @returns The overview.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchKnowledgeOverview(): Promise<KnowledgeOverview> {
+    const response = await fetch('/api/knowledge/overview', {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as KnowledgeOverview;
+  }
+
+  /**
+   * Imports NSE's list of listed equities again.
+   * @returns How many companies were imported.
+   * @throws ApiError when NSE could not be read.
+   */
+  async refreshListing(): Promise<number> {
+    const response = await fetch('/api/knowledge/listing/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+    });
+    const body = await this.readJson(response);
+    return Number(body.companies);
+  }
+
+  /**
+   * Finds companies by name or symbol, or lists the latest fetched.
+   * @param text Typed text, or an empty string.
+   * @returns Company documents.
+   * @throws ApiError when the session has ended.
+   */
+  async fetchCompanies(text: string): Promise<CompanyProfile[]> {
+    const query = new URLSearchParams();
+    query.set('q', text);
+    const response = await fetch(`/api/knowledge/companies?${query.toString()}`, {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as CompanyProfile[];
+  }
+
+  /**
+   * Fetches the company an instrument belongs to, with what is stored about it.
+   * @param instrumentId The instrument's id.
+   * @returns The company, or a reason it is not one.
+   * @throws ApiError with 404 for an unknown instrument.
+   */
+  async fetchInstrumentCompany(instrumentId: string): Promise<InstrumentCompany> {
+    const response = await fetch(`/api/knowledge/instruments/${encodeURIComponent(instrumentId)}`, {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as InstrumentCompany;
+  }
+
+  /**
+   * Starts fetching knowledge about an instrument's company.
+   * @param instrumentId The instrument's id.
+   * @param sources The source keys to run, or null for every available source.
+   * @returns The queued job.
+   * @throws ApiError when the instrument is not a company.
+   */
+  async startKnowledgeFetch(instrumentId: string, sources: string[] | null): Promise<FetchJob> {
+    const response = await fetch(`/api/knowledge/instruments/${encodeURIComponent(instrumentId)}/fetch`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: JSON.stringify({
+        sources,
+      }),
+    });
+    return (await this.readJson(response)) as unknown as FetchJob;
+  }
+
+  /**
+   * Uploads a document about an instrument's company.
+   * @param instrumentId The instrument's id.
+   * @param file The PDF, HTML, Markdown or text file.
+   * @returns How many characters and chunks were stored.
+   * @throws ApiError when the file cannot be read.
+   */
+  async uploadKnowledgeDocument(instrumentId: string, file: File): Promise<{ title: string; characters: number; chunks: number }> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await fetch(`/api/knowledge/instruments/${encodeURIComponent(instrumentId)}/documents`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        [REQUESTED_WITH_HEADER]: REQUESTED_WITH_VALUE,
+      },
+      body: form,
+    });
+    return (await this.readJson(response)) as unknown as { title: string; characters: number; chunks: number };
+  }
+
+  /**
+   * Searches stored knowledge by meaning.
+   * @param text The question or phrase.
+   * @param companyKey Search only this company, or null for all.
+   * @param signal Aborts the request when a newer search replaces it.
+   * @returns Passages, best first.
+   * @throws ApiError when ChromaDB cannot be searched.
+   */
+  async searchKnowledge(text: string, companyKey: string | null, signal: AbortSignal): Promise<KnowledgeHit[]> {
+    const query = new URLSearchParams();
+    query.set('q', text);
+    if (companyKey !== null) {
+      query.set('company_key', companyKey);
+    }
+    const response = await fetch(`/api/knowledge/search?${query.toString()}`, {
+      credentials: 'same-origin',
+      signal,
+    });
+    return (await this.readJson(response)) as unknown as KnowledgeHit[];
+  }
+
+  /**
+   * Fetches one stored document with its full text.
+   * @param documentId The document's id.
+   * @returns The document.
+   * @throws ApiError with 404 for an unknown document.
+   */
+  async fetchKnowledgeDocument(documentId: string): Promise<KnowledgeDocument> {
+    const response = await fetch(`/api/knowledge/documents/${encodeURIComponent(documentId)}`, {
+      credentials: 'same-origin',
+    });
+    return (await this.readJson(response)) as unknown as KnowledgeDocument;
   }
 
   /**

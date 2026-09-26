@@ -62,6 +62,7 @@ export function ResultsTable(props: ResultsTableProps) {
                   {result.display_name}
                 </Link>
                 {result.is_index && result.shape === 'security' ? <span className="chip chip-small">Index</span> : null}
+                {result.company_name !== null ? <div className="result-company muted">{result.company_name}</div> : null}
               </td>
               <td>
                 <span className={`exchange-tag exchange-${result.exchange}`}>{result.exchange.toUpperCase()}</span>
