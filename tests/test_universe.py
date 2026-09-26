@@ -114,3 +114,47 @@ class TestUniverseLayout:
         first = universe_layout.UniverseLayout().build(records)
         second = universe_layout.UniverseLayout().build(records)
         assert first['positions'] == second['positions']
+
+    def test_derivatives_connect_to_their_underlying(self) -> None:
+        """Checks that futures and options connect to the NSE cash instrument, and commodity options to the nearest future."""
+        records = [
+            self._record('bse-share', 'equity', 'security', 'TCS'),
+            self._record('nse-share', 'equity', 'security', 'TCS'),
+            self._record('future', 'equity', 'future', 'TCS', '2026-10-27'),
+            self._record(
+                'call', 'equity', 'option', 'TCS', '2026-10-27', 4000.0, 'CE'
+            ),
+            self._record(
+                'gold-later', 'commodity', 'future', 'GOLD', '2026-12-05'
+            ),
+            self._record(
+                'gold-near', 'commodity', 'future', 'GOLD', '2026-10-05'
+            ),
+            self._record(
+                'gold-call',
+                'commodity',
+                'option',
+                'GOLD',
+                '2026-10-05',
+                70000.0,
+                'CE',
+            ),
+        ]
+        records[1] = records[1][:1] + ('nse',) + records[1][2:]
+        records[0] = records[0][:1] + ('bse',) + records[0][2:]
+        layout = universe_layout.UniverseLayout().build(records)
+        anchors = {}
+        for position, instrument_id in enumerate(layout['ids']):
+            anchor = layout['anchors'][position]
+            anchors[instrument_id] = (
+                layout['ids'][anchor] if anchor >= 0 else None
+            )
+        assert anchors == {
+            'bse-share': None,
+            'nse-share': None,
+            'future': 'nse-share',
+            'call': 'nse-share',
+            'gold-later': None,
+            'gold-near': None,
+            'gold-call': 'gold-near',
+        }

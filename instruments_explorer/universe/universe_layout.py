@@ -57,7 +57,7 @@ class UniverseLayout:
             records (Sequence[tuple[Any, ...]]): Rows from InstrumentIndex.universe_records.
 
         Returns:
-            dict[str, Any]: "ids", "names", "exchanges", "shapes" (0 cash, 1 future, 2 option), "asset_classes" (positions in GALAXY_ORDER), "positions" (x, y, z per point, flattened, rounded to one decimal), "galaxies" (a label, centre, count and radius per asset class), "clusters" (the same for each galaxy's twelve biggest underlyings) and "radius" (the ring's radius).
+            dict[str, Any]: "ids", "names", "exchanges", "shapes" (0 cash, 1 future, 2 option), "asset_classes" (positions in GALAXY_ORDER), "positions" (x, y, z per point, flattened, rounded to one decimal), "anchors" (for each point, the index of the point its spring connects it to, or -1), "galaxies" (a label, centre, count and radius per asset class), "clusters" (the same for each galaxy's twelve biggest underlyings) and "radius" (the ring's radius).
         """
         galaxies = {}
         for record in records:
@@ -72,6 +72,7 @@ class UniverseLayout:
         shapes = []
         asset_classes = []
         positions = []
+        anchors = []
         galaxy_labels = []
         cluster_labels = []
         placed_galaxies = []
@@ -118,7 +119,18 @@ class UniverseLayout:
                             'radius': round(self._extent(offsets), 1),
                         }
                     )
-                for record, offset in zip(members, offsets, strict=True):
+                first_index = len(ids)
+                anchor_positions = self._anchor_positions(members)
+                for record, offset, anchor in zip(
+                    members,
+                    offsets,
+                    anchor_positions,
+                    strict=True,
+                ):
+                    if anchor < 0:
+                        anchors.append(-1)
+                    else:
+                        anchors.append(first_index + anchor)
                     ids.append(record[0])
                     names.append(record[6])
                     exchanges.append(record[1])
@@ -135,6 +147,7 @@ class UniverseLayout:
             'asset_classes': asset_classes,
             'asset_class_names': GALAXY_ORDER,
             'positions': positions,
+            'anchors': anchors,
             'galaxies': galaxy_labels,
             'clusters': cluster_labels,
             'radius': round(ring_radius, 1),
@@ -183,6 +196,43 @@ class UniverseLayout:
                 )
             )
         return placed
+
+    def _anchor_positions(self, members: list[tuple[Any, ...]]) -> list[int]:
+        """Finds, for each instrument of one underlying, the instrument its spring connects it to.
+
+        Futures and options connect to the underlying's cash instrument, preferring the NSE listing. An underlying without one, such as a commodity, connects its options to its nearest future instead. Cash instruments, and futures without a cash instrument, connect to nothing.
+
+        Args:
+            members (list[tuple[Any, ...]]): The underlying's instruments.
+
+        Returns:
+            list[int]: For each member, the position within members of the instrument it connects to, or -1.
+        """
+        cash = -1
+        nearest_future = -1
+        for position, record in enumerate(members):
+            is_better_cash = cash < 0 or (
+                record[1] == 'nse' and members[cash][1] != 'nse'
+            )
+            is_nearer_future = nearest_future < 0 or (
+                record[7] is not None
+                and record[7] < (members[nearest_future][7] or '')
+            )
+            if record[3] == 'security' and is_better_cash:
+                cash = position
+            elif record[3] == 'future' and record[7] and is_nearer_future:
+                nearest_future = position
+        anchors = []
+        for position, record in enumerate(members):
+            anchor = -1
+            if record[3] in ('future', 'option') and cash >= 0:
+                anchor = cash
+            elif record[3] == 'option' and nearest_future >= 0:
+                anchor = nearest_future
+            if anchor == position:
+                anchor = -1
+            anchors.append(anchor)
+        return anchors
 
     def _ring_radius(self, placed_galaxies: list[tuple[str, list]]) -> float:
         """Finds a ring radius at which neighbouring galaxies do not overlap.
