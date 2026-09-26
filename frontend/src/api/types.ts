@@ -516,6 +516,7 @@ export interface UniverseMap {
   asset_classes: number[];
   asset_class_names: string[];
   positions: number[];
+  anchors: number[];
   changes: (number | null)[];
   galaxies: UniverseLabel[];
   clusters: UniverseLabel[];

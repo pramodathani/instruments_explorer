@@ -21,6 +21,10 @@ const OPENING_SECONDS = 2.4;
 const CHANGE_LIMIT = 3;
 const CLICK_TOLERANCE = 5;
 const POINT_PIXELS = 3;
+const SPRING_OPACITY = 0.16;
+const SPRING_FADE_DISTANCE = 160;
+const SPRING_MINIMUM_SHARE = 0.12;
+const SPRING_SEGMENTS_PER_COIL = 6;
 const CLUSTER_LABEL_SIZE = 0.16;
 const CLUSTER_LABEL_DISTANCE = 900;
 const MAXIMUM_POINT_PIXELS = 11;
@@ -35,6 +39,9 @@ export class UniverseScene extends SceneController {
   private readonly ringTexture: THREE.Texture;
   private readonly pointMaterial: THREE.PointsMaterial;
   private readonly marker: THREE.Sprite;
+  private readonly springMaterial: THREE.LineBasicMaterial;
+  private springs: THREE.LineSegments | null = null;
+  private springsShown = true;
   private readonly labels = new THREE.Group();
   private readonly labelTextures: THREE.Texture[] = [];
   private readonly clusterLabels: THREE.Sprite[] = [];
@@ -87,6 +94,12 @@ export class UniverseScene extends SceneController {
       depthWrite: false,
       sizeAttenuation: false,
     });
+    this.springMaterial = new THREE.LineBasicMaterial({
+      color: cssColor.read('--ink-muted', '#9aa0a6'),
+      transparent: true,
+      opacity: SPRING_OPACITY,
+      depthWrite: false,
+    });
     this.marker = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: this.ringTexture,
@@ -131,6 +144,7 @@ export class UniverseScene extends SceneController {
     geometry.computeBoundingSphere();
     this.points = new THREE.Points(geometry, this.pointMaterial);
     this.scene.add(this.points);
+    this.buildSprings(map);
     this.paint();
     this.buildLabels();
     if (firstMap) {
@@ -154,6 +168,17 @@ export class UniverseScene extends SceneController {
   }
 
   /**
+   * Shows or hides the springs that connect derivatives to their underlying.
+   * @param shown Whether the springs are drawn.
+   */
+  setSpringsShown(shown: boolean): void {
+    this.springsShown = shown;
+    if (this.springs !== null) {
+      this.springs.visible = shown;
+    }
+  }
+
+  /**
    * Changes what the points' colours show.
    * @param colouring The day's change, the asset class or the shape.
    */
@@ -164,6 +189,7 @@ export class UniverseScene extends SceneController {
 
   /** Re-reads the theme's colours and repaints the points and labels. */
   applyTheme(): void {
+    this.springMaterial.color.set(cssColor.read('--ink-muted', '#9aa0a6'));
     this.paint();
     this.buildLabels();
   }
@@ -218,6 +244,8 @@ export class UniverseScene extends SceneController {
     }
     this.controls.update();
     const viewDistance = this.camera.position.distanceTo(this.controls.target);
+    const nearness = Math.min(Math.max(SPRING_FADE_DISTANCE / viewDistance, SPRING_MINIMUM_SHARE), 1);
+    this.springMaterial.opacity = SPRING_OPACITY * nearness;
     this.pointMaterial.size = Math.min(Math.max(POINT_PIXELS * (POINT_GROWTH_DISTANCE / viewDistance), POINT_PIXELS), MAXIMUM_POINT_PIXELS);
     for (const label of this.clusterLabels) {
       label.visible = this.camera.position.distanceTo(label.position) < CLUSTER_LABEL_DISTANCE;
@@ -242,6 +270,7 @@ export class UniverseScene extends SceneController {
     this.controls.dispose();
     this.clearLabels();
     this.pointTexture.dispose();
+    this.springMaterial.dispose();
     this.ringTexture.dispose();
     this.marker.material.dispose();
   }
@@ -306,7 +335,7 @@ export class UniverseScene extends SceneController {
       threshold: Math.max(distance * 0.004, 0.2),
     };
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObject(this.points);
+    const hits = this.raycaster.intersectObject(this.points, false);
     let found: number | null = null;
     let nearest = Infinity;
     for (const hit of hits) {
@@ -318,6 +347,89 @@ export class UniverseScene extends SceneController {
     this.hovered = found;
     this.canvas.style.cursor = found === null ? 'grab' : 'pointer';
     this.listener.onHover(found, this.pointerClientX, this.pointerClientY);
+  }
+
+  /**
+   * Draws a thin coiled spring from every future and option to the instrument it is based on, as one line object attached to the points so it follows them.
+   * @param map The laid-out instruments.
+   */
+  private buildSprings(map: UniverseMap): void {
+    if (this.springs !== null) {
+      this.springs.removeFromParent();
+      this.springs.geometry.dispose();
+      this.springs = null;
+    }
+    const segmentCounts: number[] = [];
+    let vertexTotal = 0;
+    let segmentTotal = 0;
+    for (let index = 0; index < map.anchors.length; index += 1) {
+      const anchor = map.anchors[index];
+      let segments = 0;
+      if (anchor >= 0) {
+        const length = Math.hypot(map.positions[index * 3] - map.positions[anchor * 3], map.positions[index * 3 + 1] - map.positions[anchor * 3 + 1], map.positions[index * 3 + 2] - map.positions[anchor * 3 + 2]);
+        if (length > 0.05) {
+          const coils = Math.min(Math.max(Math.round(length / 3), 1), 3);
+          segments = coils * SPRING_SEGMENTS_PER_COIL;
+        }
+      }
+      segmentCounts.push(segments);
+      if (segments > 0) {
+        vertexTotal += segments + 1;
+        segmentTotal += segments;
+      }
+    }
+    if (segmentTotal === 0 || this.points === null) {
+      return;
+    }
+    const vertices = new Float32Array(vertexTotal * 3);
+    const indices = new Uint32Array(segmentTotal * 2);
+    const start = new THREE.Vector3();
+    const end = new THREE.Vector3();
+    const along = new THREE.Vector3();
+    const across = new THREE.Vector3();
+    const around = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    const side = new THREE.Vector3(1, 0, 0);
+    let vertex = 0;
+    let indexPosition = 0;
+    for (let index = 0; index < map.anchors.length; index += 1) {
+      const segments = segmentCounts[index];
+      if (segments === 0) {
+        continue;
+      }
+      const anchor = map.anchors[index];
+      start.set(map.positions[anchor * 3], map.positions[anchor * 3 + 1], map.positions[anchor * 3 + 2]);
+      end.set(map.positions[index * 3], map.positions[index * 3 + 1], map.positions[index * 3 + 2]);
+      along.subVectors(end, start);
+      const length = along.length();
+      along.divideScalar(length);
+      across.crossVectors(along, Math.abs(along.y) > 0.9 ? side : up).normalize();
+      around.crossVectors(along, across).normalize();
+      const radius = Math.min(Math.max(length * 0.05, 0.08), 0.5);
+      const firstVertex = vertex;
+      for (let step = 0; step <= segments; step += 1) {
+        const share = step / segments;
+        const angle = (step / SPRING_SEGMENTS_PER_COIL) * Math.PI * 2;
+        const taper = Math.sin(share * Math.PI) * radius;
+        const offset = vertex * 3;
+        vertices[offset] = start.x + along.x * length * share + (across.x * Math.cos(angle) + around.x * Math.sin(angle)) * taper;
+        vertices[offset + 1] = start.y + along.y * length * share + (across.y * Math.cos(angle) + around.y * Math.sin(angle)) * taper;
+        vertices[offset + 2] = start.z + along.z * length * share + (across.z * Math.cos(angle) + around.z * Math.sin(angle)) * taper;
+        vertex += 1;
+      }
+      for (let step = 0; step < segments; step += 1) {
+        indices[indexPosition] = firstVertex + step;
+        indices[indexPosition + 1] = firstVertex + step + 1;
+        indexPosition += 2;
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    this.springs = new THREE.LineSegments(geometry, this.springMaterial);
+    this.springs.visible = this.springsShown;
+    this.springs.renderOrder = -1;
+    this.points.add(this.springs);
   }
 
   /** Colours every point by the chosen colouring. */

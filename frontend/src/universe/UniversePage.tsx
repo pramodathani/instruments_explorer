@@ -66,11 +66,14 @@ export function UniversePage() {
   const [hover, setHover] = useState<Hover | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [springsShown, setSpringsShown] = useState(true);
   const canvasReference = useRef<HTMLCanvasElement>(null);
   const sceneReference = useRef<UniverseScene | null>(null);
   const mapReference = useRef<UniverseMap | null>(null);
   const colouringReference = useRef(colouring);
   colouringReference.current = colouring;
+  const springsReference = useRef(springsShown);
+  springsReference.current = springsShown;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,6 +120,7 @@ export function UniversePage() {
         scene = created;
         sceneReference.current = created;
         created.resize(canvas.clientWidth, canvas.clientHeight);
+        created.setSpringsShown(springsReference.current);
         if (mapReference.current !== null) {
           created.setMap(mapReference.current);
           created.setColouring(colouringReference.current);
@@ -158,6 +162,10 @@ export function UniversePage() {
   useEffect(() => {
     sceneReference.current?.setColouring(colouring);
   }, [colouring]);
+
+  useEffect(() => {
+    sceneReference.current?.setSpringsShown(springsShown);
+  }, [springsShown]);
 
   useEffect(() => {
     sceneReference.current?.applyTheme();
@@ -232,6 +240,10 @@ export function UniversePage() {
             </button>
           ))}
         </div>
+        <label className="universe-springs" title="Faint coiled lines from each future and option to the share, index or future it is based on">
+          <input type="checkbox" checked={springsShown} onChange={(event) => setSpringsShown(event.target.checked)} />
+          Springs
+        </label>
         <div className="universe-search">
           <input className="input" type="search" placeholder="Fly to an instrument…" value={searchText} onChange={(event) => setSearchText(event.target.value)} />
           {matches.length > 0 ? (

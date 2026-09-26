@@ -180,3 +180,12 @@
     height: 70vh;
   }
 }
+
+.universe-springs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
