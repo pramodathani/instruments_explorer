@@ -1,6 +1,6 @@
 """Fetches Yahoo's profile, which includes the headquarters address and officers, for every Nifty Total Market company not yet located, so the Earth page can place them all.
 
-The sweep runs in the background one company at a time, waiting between companies so Yahoo is not hammered, and skips companies that already have a headquarters. Progress is announced to browsers as "locate_job" events.
+The sweep runs in the background one company at a time, waiting between companies so Yahoo is not hammered, and skips companies that already have a headquarters. Progress is announced to browsers as "locate_job" events carrying the state under "job".
 
 Typical usage example:
 
@@ -74,7 +74,6 @@ class HeadquartersSweep:
             else:
                 waiting.append(member)
         self.state = {
-            'type': 'locate_job',
             'status': 'running',
             'total': len(members),
             'done': 0,
@@ -85,7 +84,7 @@ class HeadquartersSweep:
             'finished_at': None,
         }
         self._task = asyncio.create_task(self._run(waiting, self.state))
-        self._announce(dict(self.state))
+        self._publish(self.state)
         return self.state
 
     async def _run(
@@ -120,7 +119,7 @@ class HeadquartersSweep:
                     )
                 state['done'] += 1
                 if position % 5 == 0:
-                    self._announce(dict(state))
+                    self._publish(state)
                 await asyncio.sleep(self._interval_seconds)
             state['status'] = 'done'
         except asyncio.CancelledError:
@@ -128,4 +127,17 @@ class HeadquartersSweep:
             raise
         finally:
             state['finished_at'] = self._time_source.now()
-            self._announce(dict(state))
+            self._publish(state)
+
+    def _publish(self, state: dict[str, Any]) -> None:
+        """Tells open browsers about the sweep's progress.
+
+        Args:
+            state (dict[str, Any]): The sweep's state.
+        """
+        self._announce(
+            {
+                'type': 'locate_job',
+                'job': dict(state),
+            }
+        )
