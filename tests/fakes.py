@@ -3,7 +3,7 @@
 import datetime
 import math
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Self
 
 import pymongo.errors
 import redis
@@ -693,3 +693,423 @@ class FakeSnapshotReader:
             if instrument_id in self.quotes:
                 found[instrument_id] = self.quotes[instrument_id]
         return found
+
+
+class FakeCursor:
+    """A stand-in for a pymongo async cursor over prepared documents.
+
+    Attributes:
+        documents: The matching documents, in their current order.
+    """
+
+    def __init__(self, documents: list[dict[str, Any]]):
+        """Creates the cursor.
+
+        Args:
+            documents (list[dict[str, Any]]): The matching documents.
+        """
+        self.documents = documents
+
+    def sort(self, field: str, direction: int) -> Self:
+        """Orders the documents by one field, missing values first.
+
+        Args:
+            field (str): The field.
+            direction (int): 1 for ascending, -1 for descending.
+
+        Returns:
+            Self: This cursor.
+        """
+        self.documents.sort(
+            key=lambda document: (
+                document.get(field) is not None,
+                document.get(field) or 0,
+            ),
+            reverse=direction < 0,
+        )
+        return self
+
+    def limit(self, count: int) -> Self:
+        """Keeps the first documents.
+
+        Args:
+            count (int): How many to keep.
+
+        Returns:
+            Self: This cursor.
+        """
+        self.documents = self.documents[:count]
+        return self
+
+    def __aiter__(self) -> Any:
+        """Starts asynchronous iteration.
+
+        Returns:
+            Any: An asynchronous iterator over copies of the documents.
+        """
+        return self._iterate()
+
+    async def _iterate(self) -> Any:
+        """Yields copies of the documents.
+
+        Yields:
+            dict[str, Any]: Each document.
+        """
+        for document in self.documents:
+            yield dict(document)
+
+
+class FakeCollection:
+    """A stand-in for a pymongo async collection supporting the operations the repositories use.
+
+    Filters support equality, "$exists", a "^prefix" "$regex" and "$or". Updates support "$set" with dotted keys.
+
+    Attributes:
+        documents: The stored documents by _id.
+    """
+
+    def __init__(self):
+        """Creates an empty collection."""
+        self.documents = {}
+
+    async def create_index(self, field: str) -> None:
+        """Pretends to create an index.
+
+        Args:
+            field (str): The field.
+        """
+        del field
+
+    async def update_one(
+        self,
+        query: dict[str, Any],
+        update: dict[str, Any],
+        upsert: bool = False,
+    ) -> None:
+        """Sets fields on the first matching document, creating it when asked.
+
+        Args:
+            query (dict[str, Any]): The filter.
+            update (dict[str, Any]): An update with "$set".
+            upsert (bool): Whether to create a missing document.
+        """
+        document = self._first(query)
+        if document is None:
+            if not upsert:
+                return
+            document = {
+                '_id': query.get('_id'),
+            }
+            self.documents[document['_id']] = document
+        for key, value in update['$set'].items():
+            target = document
+            parts = key.split('.')
+            for part in parts[:-1]:
+                target = target.setdefault(part, {})
+            target[parts[-1]] = value
+
+    async def replace_one(
+        self,
+        query: dict[str, Any],
+        replacement: dict[str, Any],
+        upsert: bool = False,
+    ) -> None:
+        """Replaces a document by _id.
+
+        Args:
+            query (dict[str, Any]): A filter on _id.
+            replacement (dict[str, Any]): The new document.
+            upsert (bool): Whether to create a missing document.
+        """
+        if query['_id'] in self.documents or upsert:
+            self.documents[query['_id']] = dict(replacement)
+
+    async def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
+        """Finds the first matching document.
+
+        Args:
+            query (dict[str, Any]): The filter.
+
+        Returns:
+            dict[str, Any] | None: A copy of the document, or None.
+        """
+        document = self._first(query)
+        return dict(document) if document is not None else None
+
+    def find(
+        self,
+        query: dict[str, Any],
+        projection: dict[str, int] | None = None,
+    ) -> FakeCursor:
+        """Finds every matching document.
+
+        Args:
+            query (dict[str, Any]): The filter.
+            projection (dict[str, int] | None): Fields set to 0 are left out.
+
+        Returns:
+            FakeCursor: A cursor over copies of the matches.
+        """
+        found = []
+        for document in self.documents.values():
+            if self._matches(document, query):
+                copy = dict(document)
+                for field, included in (projection or {}).items():
+                    if not included:
+                        copy.pop(field, None)
+                found.append(copy)
+        return FakeCursor(found)
+
+    async def count_documents(self, query: dict[str, Any]) -> int:
+        """Counts matching documents.
+
+        Args:
+            query (dict[str, Any]): The filter.
+
+        Returns:
+            int: The count.
+        """
+        count = 0
+        for document in self.documents.values():
+            if self._matches(document, query):
+                count += 1
+        return count
+
+    def _first(self, query: dict[str, Any]) -> dict[str, Any] | None:
+        """Finds the stored first matching document.
+
+        Args:
+            query (dict[str, Any]): The filter.
+
+        Returns:
+            dict[str, Any] | None: The stored document itself, or None.
+        """
+        for document in self.documents.values():
+            if self._matches(document, query):
+                return document
+        return None
+
+    def _matches(self, document: dict[str, Any], query: dict[str, Any]) -> bool:
+        """Checks a document against a filter.
+
+        Args:
+            document (dict[str, Any]): The document.
+            query (dict[str, Any]): The filter.
+
+        Returns:
+            bool: True when every condition holds.
+        """
+        for field, condition in query.items():
+            if field == '$or':
+                if not any(self._matches(document, part) for part in condition):
+                    return False
+                continue
+            value = document.get(field)
+            if isinstance(condition, dict):
+                if (
+                    '$exists' in condition
+                    and (field in document) != condition['$exists']
+                ):
+                    return False
+                if '$regex' in condition:
+                    prefix = condition['$regex'].lstrip('^').replace('\\\\', '')
+                    if not isinstance(value, str) or not value.startswith(
+                        prefix
+                    ):
+                        return False
+            elif value != condition:
+                return False
+        return True
+
+
+class FakeDatabase:
+    """A stand-in for a pymongo async database holding fake collections.
+
+    Attributes:
+        collections: The collections by name.
+    """
+
+    def __init__(self):
+        """Creates an empty database."""
+        self.collections = {}
+
+    def __getitem__(self, name: str) -> FakeCollection:
+        """Gives a collection, creating it on first use.
+
+        Args:
+            name (str): The collection's name.
+
+        Returns:
+            FakeCollection: The collection.
+        """
+        return self.collections.setdefault(name, FakeCollection())
+
+
+class FakeVectorStore:
+    """A stand-in for VectorStore that matches chunks by shared words instead of embeddings.
+
+    Attributes:
+        chunks: Stored chunks as (id, text, metadata).
+    """
+
+    def __init__(self):
+        """Creates an empty store."""
+        self.chunks = []
+
+    def add(
+        self,
+        document_id: str,
+        chunks: list[str],
+        metadata: dict[str, Any],
+    ) -> int:
+        """Replaces a document's chunks.
+
+        Args:
+            document_id (str): The document's id.
+            chunks (list[str]): The chunks.
+            metadata (dict[str, Any]): Fields stored with each chunk.
+
+        Returns:
+            int: The number of chunks stored.
+        """
+        kept = []
+        for chunk in self.chunks:
+            if chunk[2]['document_id'] != document_id:
+                kept.append(chunk)
+        self.chunks = kept
+        for position, text in enumerate(chunks):
+            stored = dict(metadata)
+            stored['document_id'] = document_id
+            self.chunks.append((f'{document_id}:{position}', text, stored))
+        return len(chunks)
+
+    def query(
+        self,
+        text: str,
+        company_key: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Ranks chunks by how many of the question's words they share.
+
+        Args:
+            text (str): The question.
+            company_key (str | None): Only this company's chunks, or all.
+            limit (int): The largest number of chunks.
+
+        Returns:
+            list[dict[str, Any]]: {"text", "distance", "metadata"} per chunk, best first.
+        """
+        words = set(text.lower().split())
+        scored = []
+        for _, chunk_text, metadata in self.chunks:
+            if (
+                company_key is not None
+                and metadata.get('company_key') != company_key
+            ):
+                continue
+            shared = len(words & set(chunk_text.lower().split()))
+            if shared:
+                scored.append((shared, chunk_text, metadata))
+        scored.sort(key=lambda item: -item[0])
+        hits = []
+        for shared, chunk_text, metadata in scored[:limit]:
+            hits.append(
+                {
+                    'text': chunk_text,
+                    'distance': 1.0 / (1 + shared),
+                    'metadata': metadata,
+                }
+            )
+        return hits
+
+    def count(self) -> int:
+        """Counts the stored chunks.
+
+        Returns:
+            int: The number of chunks.
+        """
+        return len(self.chunks)
+
+
+class FakeFetcher:
+    """A stand-in fetcher that returns a prepared result or raises a prepared error.
+
+    Attributes:
+        key: The fetcher's key.
+        label: The fetcher's label.
+        description: A description.
+        news: Whether it counts as a news source.
+        result: The FetchResult to return.
+        error: An error to raise instead, or None.
+        is_available: Whether it reports itself available.
+        calls: The companies it was asked about.
+    """
+
+    def __init__(
+        self,
+        key: str,
+        result: Any,
+        error: Exception | None = None,
+        is_available: bool = True,
+        news: bool = False,
+    ):
+        """Creates the fetcher.
+
+        Args:
+            key (str): The fetcher's key.
+            result (Any): The FetchResult to return.
+            error (Exception | None): An error to raise instead, or None.
+            is_available (bool): Whether it reports itself available.
+            news (bool): Whether it counts as a news source.
+        """
+        self.key = key
+        self.label = key.title()
+        self.description = f'The {key} stand-in.'
+        self.news = news
+        self.result = result
+        self.error = error
+        self.is_available = is_available
+        self.calls = []
+
+    def available(self) -> tuple[bool, str]:
+        """Reports the prepared availability.
+
+        Returns:
+            tuple[bool, str]: Whether it can run, and why not.
+        """
+        if self.is_available:
+            return True, ''
+        return False, 'Switched off in this test.'
+
+    def describe(self) -> dict[str, Any]:
+        """Describes the fetcher.
+
+        Returns:
+            dict[str, Any]: Its key, label and availability.
+        """
+        available, reason = self.available()
+        return {
+            'key': self.key,
+            'label': self.label,
+            'description': self.description,
+            'news': self.news,
+            'available': available,
+            'reason': reason,
+        }
+
+    async def fetch(self, company: Any) -> Any:
+        """Returns the prepared result or raises the prepared error.
+
+        Args:
+            company (Any): The company asked about.
+
+        Returns:
+            Any: The prepared FetchResult.
+
+        Raises:
+            Exception: The prepared error.
+        """
+        self.calls.append(company)
+        if self.error is not None:
+            raise self.error
+        return self.result

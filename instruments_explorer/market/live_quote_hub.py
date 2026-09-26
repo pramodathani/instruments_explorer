@@ -129,6 +129,15 @@ class LiveQuoteHub:
             if instrument_id in watched:
                 self._connections[connection_id].queue_quote(message)
 
+    def broadcast_event(self, message: dict[str, Any]) -> None:
+        """Queues a message that is not a quote, such as a fetch job's progress, for every open browser.
+
+        Args:
+            message (dict[str, Any]): The message, with "type".
+        """
+        for connection in self._connections.values():
+            connection.queue_event(message)
+
     def connection_count(self) -> int:
         """Counts the browsers being served.
 
