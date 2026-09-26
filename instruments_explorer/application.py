@@ -23,6 +23,20 @@ from instruments_explorer.derivatives import option_chain_builder
 from instruments_explorer.indicators import indicator_catalogue
 from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import instrument_index_maintainer
+from instruments_explorer.knowledge import company_resolver
+from instruments_explorer.knowledge import fetch_job_runner
+from instruments_explorer.knowledge import knowledge_scheduler
+from instruments_explorer.knowledge import knowledge_service
+from instruments_explorer.knowledge import listing_importer
+from instruments_explorer.knowledge import polite_client
+from instruments_explorer.knowledge import vector_store
+from instruments_explorer.knowledge.fetchers import bing_news
+from instruments_explorer.knowledge.fetchers import google_search
+from instruments_explorer.knowledge.fetchers import nse_announcements
+from instruments_explorer.knowledge.fetchers import rss_news
+from instruments_explorer.knowledge.fetchers import screener_in
+from instruments_explorer.knowledge.fetchers import wikipedia
+from instruments_explorer.knowledge.fetchers import yahoo_fundamentals
 from instruments_explorer.market import live_quote_hub
 from instruments_explorer.market import live_quote_reader
 from instruments_explorer.market import quote_snapshot_reader
@@ -31,12 +45,16 @@ from instruments_explorer.routes import chart_routes
 from instruments_explorer.routes import derivative_routes
 from instruments_explorer.routes import frontend_routes
 from instruments_explorer.routes import instrument_routes
+from instruments_explorer.routes import knowledge_routes
 from instruments_explorer.routes import live_routes
 from instruments_explorer.routes import status_routes
 from instruments_explorer.security import authenticator
 from instruments_explorer.security import session_guard
 from instruments_explorer.security import websocket_origin_checker
 from instruments_explorer.storage import chroma_connection
+from instruments_explorer.storage import company_repository
+from instruments_explorer.storage import document_repository
+from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import mongo_connection
 from instruments_explorer.unified_broker_interface import access_token_provider
 from instruments_explorer.unified_broker_interface import health_checker
@@ -46,6 +64,9 @@ from instruments_explorer.unified_broker_interface import rest_client
 from instruments_explorer.utilities import clock
 
 _SESSION_COOKIE = 'instruments_explorer_session'
+_WEB_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) instruments_explorer/0.1'
+_ROBOTS_AGENT = 'instruments_explorer'
+_LOGGER = logging.getLogger(__name__)
 
 
 class Application:
@@ -73,6 +94,9 @@ class Application:
         self._mongo_reader = None
         self._maintainer = None
         self._quote_reader = None
+        self._web_client = None
+        self._knowledge_parts = None
+        self._scheduler = None
 
     def run(self) -> None:
         """Builds the application and serves it until stopped.
@@ -138,6 +162,8 @@ class Application:
             self._http_client,
             token_provider,
         )
+        database = self._mongo.database()
+        companies = company_repository.CompanyRepository(database)
         builder = instrument_index_builder.InstrumentIndexBuilder(
             client,
             explorer_settings.data_directory / 'instruments',
@@ -148,6 +174,7 @@ class Application:
             builder,
             self.time_source,
             check_interval_seconds=explorer_settings.index_check_interval_seconds,
+            name_source=companies.names_by_symbol,
         )
         hub = live_quote_hub.LiveQuoteHub()
         self._quote_reader = live_quote_reader.LiveQuoteReader(
@@ -161,6 +188,7 @@ class Application:
             self.time_source,
             explorer_settings.risk_free_rate,
         )
+        knowledge_parts = self._build_knowledge(client, companies, hub)
         ubi_checker = health_checker.HealthChecker(
             client,
             token_provider,
@@ -181,8 +209,94 @@ class Application:
             client,
             hub,
             chain_builder,
+            knowledge_parts,
             with_lifespan=True,
         )
+
+    def _build_knowledge(
+        self,
+        client: rest_client.UnifiedBrokerInterfaceClient,
+        companies: company_repository.CompanyRepository,
+        hub: live_quote_hub.LiveQuoteHub,
+    ) -> knowledge_routes.KnowledgeParts:
+        """Builds the knowledge pipeline: the polite web client, the fetchers, storage, the job runner and the scheduler.
+
+        Args:
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads broker attributes from UBI.
+            companies (company_repository.CompanyRepository): Stores company documents.
+            hub (live_quote_hub.LiveQuoteHub): Announces job progress to browsers.
+
+        Returns:
+            knowledge_routes.KnowledgeParts: The components the knowledge routes use.
+        """
+        explorer_settings = self.explorer_settings
+        database = self._mongo.database()
+        documents = document_repository.DocumentRepository(database)
+        jobs = fetch_job_repository.FetchJobRepository(database)
+        self._web_client = httpx.AsyncClient(
+            timeout=30.0,
+            follow_redirects=True,
+            headers={
+                'User-Agent': _WEB_USER_AGENT,
+            },
+        )
+        polite = polite_client.PoliteHttpClient(
+            self._web_client,
+            _ROBOTS_AGENT,
+            explorer_settings.knowledge_host_interval_seconds,
+        )
+        fetchers = [
+            nse_announcements.NseAnnouncementsFetcher(polite),
+            yahoo_fundamentals.YahooFundamentalsFetcher(),
+            screener_in.ScreenerFetcher(polite),
+            wikipedia.WikipediaFetcher(
+                polite,
+                explorer_settings.knowledge_contact,
+            ),
+            rss_news.RssNewsFetcher(polite),
+            bing_news.BingNewsFetcher(polite),
+            google_search.GoogleSearchFetcher(
+                polite,
+                explorer_settings.google_search_api_key,
+                explorer_settings.google_search_engine_id,
+            ),
+        ]
+        service = knowledge_service.KnowledgeService(
+            companies,
+            documents,
+            vector_store.VectorStore(
+                explorer_settings.chromadb_host,
+                explorer_settings.chromadb_port,
+            ),
+            self.time_source,
+        )
+        runner = fetch_job_runner.FetchJobRunner(
+            fetchers,
+            service,
+            jobs,
+            hub.broadcast_event,
+            self.time_source,
+        )
+        self._scheduler = knowledge_scheduler.KnowledgeScheduler(
+            runner,
+            companies,
+            explorer_settings.knowledge_refresh_hours,
+        )
+        self._knowledge_parts = knowledge_routes.KnowledgeParts(
+            company_resolver.CompanyResolver(
+                self._maintainer, client, companies
+            ),
+            service,
+            runner,
+            listing_importer.ListingImporter(
+                polite, companies, self.time_source
+            ),
+            companies,
+            documents,
+            jobs,
+            self._maintainer.rebuild,
+        )
+        return self._knowledge_parts
 
     def create_web_application(
         self,
@@ -192,6 +306,7 @@ class Application:
         client: rest_client.UnifiedBrokerInterfaceClient,
         hub: live_quote_hub.LiveQuoteHub,
         chain_builder: option_chain_builder.OptionChainBuilder,
+        knowledge_parts: knowledge_routes.KnowledgeParts,
         with_lifespan: bool,
     ) -> fastapi.FastAPI:
         """Assembles the FastAPI application from ready components.
@@ -205,6 +320,7 @@ class Application:
             client (rest_client.UnifiedBrokerInterfaceClient): Reads instruments, quotes and candles from UBI.
             hub (live_quote_hub.LiveQuoteHub): Delivers live quotes to browsers.
             chain_builder (option_chain_builder.OptionChainBuilder): Builds option chains and volatility surfaces.
+            knowledge_parts (knowledge_routes.KnowledgeParts): The knowledge pipeline's components.
             with_lifespan (bool): Whether start-up should open and refresh the index and start the quote reader, and shutdown close everything.
 
         Returns:
@@ -251,6 +367,7 @@ class Application:
             guard,
         )
         derivatives = derivative_routes.DerivativeRoutes(chain_builder, guard)
+        knowledge = knowledge_routes.KnowledgeRoutes(knowledge_parts, guard)
         live = live_routes.LiveRoutes(
             hub,
             guard,
@@ -265,6 +382,7 @@ class Application:
         web_application.include_router(instruments.router)
         web_application.include_router(charts.router)
         web_application.include_router(derivatives.router)
+        web_application.include_router(knowledge.router)
         web_application.include_router(live.router)
         web_application.include_router(frontend.router)
         return web_application
@@ -287,8 +405,11 @@ class Application:
         del web_application
         await asyncio.to_thread(self._maintainer.open_newest_existing)
         tasks = [
+            asyncio.create_task(self._prepare_knowledge()),
             asyncio.create_task(self._maintainer.run()),
             asyncio.create_task(self._quote_reader.run()),
+            asyncio.create_task(self._knowledge_parts.runner.run()),
+            asyncio.create_task(self._scheduler.run()),
         ]
         try:
             yield
@@ -301,7 +422,22 @@ class Application:
             if self._maintainer.current_index is not None:
                 self._maintainer.current_index.close()
             await self._http_client.aclose()
+            await self._web_client.aclose()
             await self._redis_reader.close()
             await asyncio.to_thread(self._mongo_reader.close)
             await self._mongo.close()
             await self._chroma.close()
+
+    async def _prepare_knowledge(self) -> None:
+        """Creates the MongoDB indexes and imports NSE's equity list once, the first time the application starts."""
+        parts = self._knowledge_parts
+        try:
+            await parts.companies.ensure_indexes()
+            await parts.documents.ensure_indexes()
+            counts = await parts.companies.counts()
+            if counts['listed'] == 0:
+                imported = await parts.importer.import_nse()
+                _LOGGER.info('Imported %d companies from NSE.', imported)
+                await parts.after_listing_import()
+        except Exception as error:  # noqa: BLE001
+            _LOGGER.warning('Preparing company knowledge failed: %s', error)

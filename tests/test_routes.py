@@ -5,6 +5,7 @@ from pathlib import Path
 
 import argon2
 import fastapi.testclient
+import httpx
 import pytest
 import starlette.websockets
 
@@ -13,8 +14,18 @@ from instruments_explorer.configuration import settings
 from instruments_explorer.derivatives import option_chain_builder
 from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import instrument_index_maintainer
+from instruments_explorer.knowledge import company_resolver
+from instruments_explorer.knowledge import fetch_job_runner
+from instruments_explorer.knowledge import fetched_document
+from instruments_explorer.knowledge import knowledge_service
+from instruments_explorer.knowledge import listing_importer
+from instruments_explorer.knowledge import polite_client
 from instruments_explorer.market import live_quote_hub
+from instruments_explorer.routes import knowledge_routes
 from instruments_explorer.security import authenticator
+from instruments_explorer.storage import company_repository
+from instruments_explorer.storage import document_repository
+from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.unified_broker_interface import exceptions
 from tests import fakes
 
@@ -38,6 +49,9 @@ class RouteParts:
         hub: The live quote hub.
         maintainer: The index maintainer.
         snapshot_reader: The stand-in for the live quote snapshot reader.
+        companies: The company repository over a fake database.
+        vector_store: The stand-in vector store.
+        fetcher: The one stand-in knowledge fetcher.
     """
 
     def __init__(
@@ -86,6 +100,51 @@ class RouteParts:
             time_source,
             0.065,
         )
+        database = fakes.FakeDatabase()
+        self.companies = company_repository.CompanyRepository(database)
+        documents = document_repository.DocumentRepository(database)
+        jobs = fetch_job_repository.FetchJobRepository(database)
+        self.vector_store = fakes.FakeVectorStore()
+        service = knowledge_service.KnowledgeService(
+            self.companies,
+            documents,
+            self.vector_store,
+            time_source,
+        )
+        self.fetcher = fakes.FakeFetcher(
+            'screener',
+            fetched_document.FetchResult({}, [], 'nothing'),
+        )
+        runner = fetch_job_runner.FetchJobRunner(
+            [
+                self.fetcher,
+            ],
+            service,
+            jobs,
+            self.hub.broadcast_event,
+            time_source,
+        )
+        offline = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404)),
+        )
+        knowledge_parts = knowledge_routes.KnowledgeParts(
+            company_resolver.CompanyResolver(
+                self.maintainer,
+                self.catalogue_client,
+                self.companies,
+            ),
+            service,
+            runner,
+            listing_importer.ListingImporter(
+                polite_client.PoliteHttpClient(offline, 'test', 0.0),
+                self.companies,
+                time_source,
+            ),
+            self.companies,
+            documents,
+            jobs,
+            self.maintainer.rebuild,
+        )
         web_application = explorer.create_web_application(
             authenticator.Authenticator(_HASH, time_source),
             [
@@ -96,6 +155,7 @@ class RouteParts:
             self.catalogue_client,
             self.hub,
             chain_builder,
+            knowledge_parts,
             with_lifespan=False,
         )
         self.client = fastapi.testclient.TestClient(web_application)
@@ -720,3 +780,156 @@ class TestDerivativeRoutes:
         parts.log_in()
         response = parts.client.get('/api/derivatives/underlyings')
         assert response.status_code == 503
+
+
+class TestKnowledgeRoutes:
+    """Tests for the /api/knowledge routes."""
+
+    def test_index_is_not_a_company(self, tmp_path: Path) -> None:
+        """Checks that an index gets a reason instead of a company.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        body = parts.client.get(
+            f'/api/knowledge/instruments/{fakes.NIFTY_ID}'
+        ).json()
+        assert body['company'] is None
+        assert 'not a company' in body['reason']
+
+    def test_share_resolves_to_its_listing(self, tmp_path: Path) -> None:
+        """Checks that a share finds its company in the imported listing.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        asyncio.run(
+            parts.companies.upsert_listings(
+                [
+                    {
+                        'company_key': 'INE002A01018',
+                        'name': 'Reliance Industries Limited',
+                        'isin': 'INE002A01018',
+                        'exchange': 'nse',
+                        'symbol': 'RELIANCE',
+                    },
+                ],
+                1.0,
+            )
+        )
+        parts.log_in()
+        body = parts.client.get(
+            f'/api/knowledge/instruments/{fakes.RELIANCE_NSE_ID}'
+        ).json()
+        assert body['company']['company_key'] == 'INE002A01018'
+        assert body['profile']['name'] == 'Reliance Industries Limited'
+
+    def test_fetch_needs_the_application_header(self, tmp_path: Path) -> None:
+        """Checks that starting a fetch without the header is refused, and with it queues a job.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        path = f'/api/knowledge/instruments/{fakes.RELIANCE_NSE_ID}/fetch'
+        assert parts.client.post(path, json={}).status_code == 403
+        job = parts.client.post(path, json={}, headers=_HEADERS).json()
+        assert job['status'] == 'queued'
+        assert job['steps'][0]['source'] == 'screener'
+
+    def test_fetch_refuses_an_index(self, tmp_path: Path) -> None:
+        """Checks that fetching for an index is refused.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.post(
+            f'/api/knowledge/instruments/{fakes.NIFTY_ID}/fetch',
+            json={},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 400
+
+    def test_upload_and_search(self, tmp_path: Path) -> None:
+        """Checks that an uploaded text file becomes searchable.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.post(
+            f'/api/knowledge/instruments/{fakes.RELIANCE_NSE_ID}/documents',
+            files={
+                'file': (
+                    'notes.txt',
+                    b'The refinery at Jamnagar is the largest in the world.',
+                    'text/plain',
+                ),
+            },
+            headers=_HEADERS,
+        )
+        assert response.status_code == 200
+        assert response.json()['chunks'] == 1
+        hits = parts.client.get(
+            '/api/knowledge/search?q=largest refinery'
+        ).json()
+        assert hits[0]['source'] == 'upload'
+        assert hits[0]['title'] == 'notes.txt'
+
+    def test_upload_refuses_an_unknown_type(self, tmp_path: Path) -> None:
+        """Checks that an unreadable file type is refused.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.post(
+            f'/api/knowledge/instruments/{fakes.RELIANCE_NSE_ID}/documents',
+            files={
+                'file': (
+                    'sheet.xlsx',
+                    b'binary',
+                    'application/octet-stream',
+                ),
+            },
+            headers=_HEADERS,
+        )
+        assert response.status_code == 400
+
+    def test_search_needs_a_question(self, tmp_path: Path) -> None:
+        """Checks that an empty question is refused.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        assert (
+            parts.client.get('/api/knowledge/search?q=%20').status_code == 400
+        )
+
+    def test_overview(self, tmp_path: Path) -> None:
+        """Checks the overview's sections.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        body = parts.client.get('/api/knowledge/overview').json()
+        assert body['counts'] == {
+            'listed': 0,
+            'fetched': 0,
+            'documents': 0,
+            'chunks': 0,
+        }
+        assert body['sources'][0]['key'] == 'screener'
+        assert body['jobs'] == []
