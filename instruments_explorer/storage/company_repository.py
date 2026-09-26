@@ -207,6 +207,24 @@ class CompanyRepository:
             }
         return details
 
+    async def with_headquarters(self) -> list[dict[str, Any]]:
+        """Lists the companies whose headquarters address is known.
+
+        Returns:
+            list[dict[str, Any]]: Company documents without their _id.
+        """
+        found = []
+        cursor = self._collection.find(
+            {
+                'headquarters': {
+                    '$exists': True,
+                },
+            }
+        )
+        async for document in cursor:
+            found.append(self._clean(document))
+        return found
+
     async def screener_members(
         self, only_total_market: bool
     ) -> list[dict[str, Any]]:

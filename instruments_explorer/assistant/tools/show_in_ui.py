@@ -21,6 +21,7 @@ class ShowInUiTool(base.BaseTool):
 - derivatives: exchange and underlying, with optional expiry and tab ("chain", "charts" or "surface").
 - screener: conditions and sectors, with optional sort and descending.
 - universe: optional instrument_id to fly to, and include_options.
+- earth: the satellite globe of company headquarters, with optional instrument_id (of a share) to fly to.
 - knowledge and overview: no fields.
 Call it once, after you have the ids you need, when showing would help more than describing."""
     INPUT_SCHEMA: ClassVar[dict[str, Any]] = {
@@ -34,6 +35,7 @@ Call it once, after you have the ids you need, when showing would help more than
                     'derivatives',
                     'screener',
                     'universe',
+                    'earth',
                     'knowledge',
                     'overview',
                 ],
@@ -154,6 +156,11 @@ Call it once, after you have the ids you need, when showing would help more than
             path = self._with_query(
                 '/universe', self._universe_query(arguments)
             )
+        elif page == 'earth':
+            focus = []
+            if 'instrument_id' in arguments:
+                focus.append(('focus', arguments['instrument_id']))
+            path = self._with_query('/earth', focus)
         else:
             path = f'/{page}'
         label = arguments.get('label') or page.title()

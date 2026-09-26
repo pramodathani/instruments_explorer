@@ -16,7 +16,7 @@ class GetCompanyTool(base.BaseTool):
     """Reads the company panel of the instrument page."""
 
     NAME = 'get_company'
-    DESCRIPTION = 'Reads what is stored about the company behind an instrument (a share or a derivative on one): its profile, sector, ratios and fundamentals from Screener.in and Yahoo Finance, strengths and weaknesses, and the titles of its stored documents such as NSE announcements and news. Says when nothing has been fetched yet. Indices, commodities, currencies and bonds have no company.'
+    DESCRIPTION = 'Reads what is stored about the company behind an instrument (a share or a derivative on one): its profile, sector, ratios and fundamentals from Screener.in and Yahoo Finance, strengths and weaknesses, headquarters address, key people (executives such as the CEO and CFO, and the board of directors from the company registry, with appointment dates), and the titles of its stored documents such as NSE announcements and news. Says when nothing has been fetched yet. Indices, commodities, currencies and bonds have no company.'
     INPUT_SCHEMA: ClassVar[dict[str, Any]] = {
         'type': 'object',
         'properties': {
@@ -66,6 +66,9 @@ class GetCompanyTool(base.BaseTool):
                 }
             )
         profile = answer.get('profile')
+        if profile is not None:
+            profile = dict(profile)
+            profile.pop('key_people', None)
         if profile is None:
             note = 'Nothing has been fetched for this company yet; request_knowledge_fetch can ask the user to fetch it.'
         else:
@@ -74,6 +77,8 @@ class GetCompanyTool(base.BaseTool):
             {
                 'company': answer['company'],
                 'profile': profile,
+                'key_people': answer.get('key_people'),
+                'headquarters': answer.get('headquarters'),
                 'documents_total': len(answer.get('documents', [])),
                 'latest_documents': documents,
                 'note': note,

@@ -15,6 +15,7 @@ from typing import Any
 from instruments_explorer.knowledge import chunker
 from instruments_explorer.knowledge import company_identity
 from instruments_explorer.knowledge import fetched_document
+from instruments_explorer.knowledge import key_people_book
 from instruments_explorer.knowledge import text_extractor
 from instruments_explorer.knowledge import vector_store
 from instruments_explorer.storage import company_repository
@@ -22,6 +23,8 @@ from instruments_explorer.storage import document_repository
 from instruments_explorer.utilities import clock
 
 UPLOAD_SOURCE = 'upload'
+PEOPLE_SOURCE = 'key_people'
+PEOPLE_UPLOAD_SOURCE = 'people_upload'
 MAXIMUM_UPLOAD_BYTES = 30 * 1024 * 1024
 
 
@@ -49,6 +52,7 @@ class KnowledgeService:
         self._time_source = time_source
         self._chunker = chunker.Chunker()
         self._extractor = text_extractor.TextExtractor()
+        self._book = key_people_book.KeyPeopleBook()
 
     async def store(
         self,
@@ -82,6 +86,17 @@ class KnowledgeService:
         )
         new = 0
         chunks = 0
+        if self._touches_people(result.profile):
+            passage = await self._people_passage(company)
+            if passage is not None:
+                result = fetched_document.FetchResult(
+                    result.profile,
+                    [
+                        *result.documents,
+                        passage,
+                    ],
+                    result.message,
+                )
         for document in result.documents:
             record = document.to_record(company.company_key, fetched_at)
             if await self._documents.upsert(record):
@@ -92,6 +107,76 @@ class KnowledgeService:
             'new': new,
             'chunks': chunks,
         }
+
+    async def store_extracted_people(
+        self,
+        company: company_identity.CompanyIdentity,
+        people: list[dict[str, Any]],
+        document_title: str,
+    ) -> None:
+        """Stores the key people Claude read from an uploaded document, replacing those read from an earlier upload.
+
+        Args:
+            company (company_identity.CompanyIdentity): The company.
+            people (list[dict[str, Any]]): One {"name", "role"} per person.
+            document_title (str): The document they were read from.
+        """
+        await self.store(
+            company,
+            PEOPLE_UPLOAD_SOURCE,
+            fetched_document.FetchResult(
+                {
+                    'key_people.upload': people,
+                    'key_people_upload_document': document_title,
+                },
+                [],
+                f'{len(people)} people read from {document_title}',
+            ),
+        )
+
+    def _touches_people(self, profile: dict[str, Any]) -> bool:
+        """Says whether a fetch changed the key people or the headquarters.
+
+        Args:
+            profile (dict[str, Any]): The fetched profile fields.
+
+        Returns:
+            bool: True when the searchable key people passage needs rewriting.
+        """
+        for field in profile:
+            if field == 'headquarters' or field.startswith('key_people.'):
+                return True
+        return False
+
+    async def _people_passage(
+        self,
+        company: company_identity.CompanyIdentity,
+    ) -> fetched_document.FetchedDocument | None:
+        """Writes the company's key people and headquarters as one searchable document, which replaces the previous version.
+
+        Args:
+            company (company_identity.CompanyIdentity): The company.
+
+        Returns:
+            fetched_document.FetchedDocument | None: The passage, or None when nothing is known yet.
+        """
+        stored = await self._companies.find(company.company_key) or {}
+        arranged = self._book.arrange(stored.get('key_people') or {})
+        headquarters = stored.get('headquarters')
+        if (
+            not arranged['executives']
+            and not arranged['board']
+            and not headquarters
+        ):
+            return None
+        return fetched_document.FetchedDocument(
+            PEOPLE_SOURCE,
+            f'{company.name}: key people and headquarters',
+            '',
+            self._time_source.now(),
+            self._book.describe(company.name, arranged, headquarters),
+            identity=f'key_people:{company.company_key}',
+        )
 
     async def import_upload(
         self,

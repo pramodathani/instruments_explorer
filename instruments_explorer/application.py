@@ -29,10 +29,13 @@ from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import instrument_index_maintainer
 from instruments_explorer.knowledge import company_resolver
 from instruments_explorer.knowledge import fetch_job_runner
+from instruments_explorer.knowledge import headquarters_sweep
+from instruments_explorer.knowledge import key_people_extractor
 from instruments_explorer.knowledge import knowledge_scheduler
 from instruments_explorer.knowledge import knowledge_service
 from instruments_explorer.knowledge import listing_importer
 from instruments_explorer.knowledge import polite_client
+from instruments_explorer.knowledge import postcode_geocoder
 from instruments_explorer.knowledge import vector_store
 from instruments_explorer.knowledge.fetchers import bing_news
 from instruments_explorer.knowledge.fetchers import google_search
@@ -41,6 +44,7 @@ from instruments_explorer.knowledge.fetchers import rss_news
 from instruments_explorer.knowledge.fetchers import screener_in
 from instruments_explorer.knowledge.fetchers import wikipedia
 from instruments_explorer.knowledge.fetchers import yahoo_fundamentals
+from instruments_explorer.knowledge.fetchers import zaubacorp_directors
 from instruments_explorer.market import live_quote_hub
 from instruments_explorer.market import live_quote_reader
 from instruments_explorer.market import quote_snapshot_reader
@@ -48,6 +52,7 @@ from instruments_explorer.routes import auth_routes
 from instruments_explorer.routes import chart_routes
 from instruments_explorer.routes import chat_routes
 from instruments_explorer.routes import derivative_routes
+from instruments_explorer.routes import earth_routes
 from instruments_explorer.routes import frontend_routes
 from instruments_explorer.routes import instrument_routes
 from instruments_explorer.routes import knowledge_routes
@@ -338,10 +343,12 @@ class Application:
             _ROBOTS_AGENT,
             explorer_settings.knowledge_host_interval_seconds,
         )
+        yahoo = yahoo_fundamentals.YahooFundamentalsFetcher()
         fetchers = [
             nse_announcements.NseAnnouncementsFetcher(polite),
-            yahoo_fundamentals.YahooFundamentalsFetcher(),
+            yahoo,
             screener_in.ScreenerFetcher(polite),
+            zaubacorp_directors.ZaubacorpDirectorsFetcher(polite),
             wikipedia.WikipediaFetcher(
                 polite,
                 explorer_settings.knowledge_contact,
@@ -388,8 +395,37 @@ class Application:
             documents,
             jobs,
             self._maintainer.rebuild,
+            geocoder=postcode_geocoder.PostcodeGeocoder(
+                explorer_settings.data_directory / 'geonames',
+            ),
+            people_extractor=self._build_people_extractor(),
+            sweep=headquarters_sweep.HeadquartersSweep(
+                yahoo,
+                service,
+                companies,
+                hub.broadcast_event,
+                self.time_source,
+                explorer_settings.knowledge_host_interval_seconds,
+            ),
         )
         return self._knowledge_parts
+
+    def _build_people_extractor(
+        self,
+    ) -> key_people_extractor.KeyPeopleExtractor | None:
+        """Builds the reader of key people from uploaded documents, which shares the chat assistant's Claude client and daily limit.
+
+        Returns:
+            key_people_extractor.KeyPeopleExtractor | None: The reader, or None when no API key is set.
+        """
+        if self._chat_parts.client is None:
+            return None
+        return key_people_extractor.KeyPeopleExtractor(
+            self._chat_parts.client,
+            self._chat_parts.usage,
+            self.explorer_settings,
+            self.time_source,
+        )
 
     def create_web_application(
         self,
@@ -471,6 +507,12 @@ class Application:
         )
         derivatives = derivative_routes.DerivativeRoutes(chain_builder, guard)
         knowledge = knowledge_routes.KnowledgeRoutes(knowledge_parts, guard)
+        earth = earth_routes.EarthRoutes(
+            knowledge_parts,
+            knowledge,
+            maintainer,
+            guard,
+        )
         screener = screener_routes.ScreenerRoutes(screener_parts, guard)
         universe_map = universe_routes.UniverseRoutes(universe, guard)
         services = assistant_services.AssistantServices(
@@ -501,6 +543,7 @@ class Application:
         web_application.include_router(charts.router)
         web_application.include_router(derivatives.router)
         web_application.include_router(knowledge.router)
+        web_application.include_router(earth.router)
         web_application.include_router(screener.router)
         web_application.include_router(universe_map.router)
         web_application.include_router(chat.router)

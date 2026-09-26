@@ -28,6 +28,7 @@ class FetchedDocument:
         url: str,
         published_at: float | None,
         text: str,
+        identity: str | None = None,
     ):
         """Creates the document.
 
@@ -37,13 +38,15 @@ class FetchedDocument:
             url (str): Where it came from, or an empty string.
             published_at (float | None): When it was published, in epoch seconds, or None.
             text (str): The text.
+            identity (str | None): What makes the document the same document next time, when neither the address nor the text does, such as "key_people:<company key>" for a summary rewritten after every fetch; None to use the address, or the title and text.
         """
         self.source = source
         self.title = title
         self.url = url
         self.published_at = published_at
         self.text = text
-        identity = url if url else f'{title}\n{text}'
+        if identity is None:
+            identity = url if url else f'{title}\n{text}'
         digest = hashlib.sha1(f'{source}\n{identity}'.encode()).hexdigest()
         self.document_id = digest
 

@@ -9,15 +9,20 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import anthropic
 import fastapi
 import httpx
 import pydantic
 
 from instruments_explorer.knowledge import company_resolver
 from instruments_explorer.knowledge import fetch_job_runner
+from instruments_explorer.knowledge import headquarters_sweep
+from instruments_explorer.knowledge import key_people_book
+from instruments_explorer.knowledge import key_people_extractor
 from instruments_explorer.knowledge import knowledge_service
 from instruments_explorer.knowledge import listing_importer
 from instruments_explorer.knowledge import polite_client
+from instruments_explorer.knowledge import postcode_geocoder
 from instruments_explorer.knowledge import text_extractor
 from instruments_explorer.knowledge import vector_store
 from instruments_explorer.security import session_guard
@@ -37,6 +42,16 @@ class FetchRequest(pydantic.BaseModel):
     """
 
     sources: list[str] | None = None
+
+
+class ExtractRequest(pydantic.BaseModel):
+    """The body of a request to read key people from an uploaded document.
+
+    Attributes:
+        document_id: The uploaded document's id.
+    """
+
+    document_id: str = pydantic.Field(min_length=1, max_length=200)
 
 
 class KnowledgeParts:
@@ -63,6 +78,9 @@ class KnowledgeParts:
         documents: document_repository.DocumentRepository,
         jobs: fetch_job_repository.FetchJobRepository,
         after_listing_import: Callable[[], Awaitable[None]],
+        geocoder: postcode_geocoder.PostcodeGeocoder | None = None,
+        people_extractor: key_people_extractor.KeyPeopleExtractor | None = None,
+        sweep: headquarters_sweep.HeadquartersSweep | None = None,
     ):
         """Gathers the components.
 
@@ -75,6 +93,9 @@ class KnowledgeParts:
             documents (document_repository.DocumentRepository): Reads stored documents.
             jobs (fetch_job_repository.FetchJobRepository): Reads fetch jobs.
             after_listing_import (Callable[[], Awaitable[None]]): Called after an import.
+            geocoder (postcode_geocoder.PostcodeGeocoder | None): Places headquarters on the map, or None.
+            people_extractor (key_people_extractor.KeyPeopleExtractor | None): Reads key people from uploads with Claude, or None when no API key is set.
+            sweep (headquarters_sweep.HeadquartersSweep | None): Locates every index company, or None.
         """
         self.resolver = resolver
         self.service = service
@@ -84,6 +105,9 @@ class KnowledgeParts:
         self.documents = documents
         self.jobs = jobs
         self.after_listing_import = after_listing_import
+        self.geocoder = geocoder
+        self.people_extractor = people_extractor
+        self.sweep = sweep
 
 
 class KnowledgeRoutes:
@@ -107,6 +131,7 @@ class KnowledgeRoutes:
         """
         self.parts = parts
         self._background_tasks = set()
+        self._book = key_people_book.KeyPeopleBook()
         session = fastapi.Depends(guard.require_session)
         header = fastapi.Depends(guard.require_app_header)
         self.router = fastapi.APIRouter(
@@ -159,6 +184,10 @@ class KnowledgeRoutes:
             (
                 '/api/knowledge/instruments/{instrument_id}/documents',
                 self.upload,
+            ),
+            (
+                '/api/knowledge/instruments/{instrument_id}/key-people/extract',
+                self.extract_people,
             ),
         ]:
             self.router.add_api_route(
@@ -242,7 +271,7 @@ class KnowledgeRoutes:
             instrument_id (str): UBI's instrument id.
 
         Returns:
-            dict[str, Any]: "company" (the identity, or None when the instrument is not a company), "reason" (why not), "profile" (the stored company document, or None) and "documents".
+            dict[str, Any]: "company" (the identity, or None when the instrument is not a company), "reason" (why not), "profile" (the stored company document, or None), "key_people" (executives and board merged across sources), "headquarters" (the address with "location" when it can be placed on the map), "can_read_people" (whether uploads can be read with Claude) and "documents".
 
         Raises:
             fastapi.HTTPException: 404 for an unknown instrument, 503 while the index is not ready.
@@ -254,6 +283,9 @@ class KnowledgeRoutes:
                 'company': None,
                 'reason': str(error),
                 'profile': None,
+                'key_people': None,
+                'headquarters': None,
+                'can_read_people': False,
                 'documents': [],
             }
         except LookupError as error:
@@ -262,10 +294,16 @@ class KnowledgeRoutes:
                 status_code=status,
                 detail=str(error),
             ) from error
+        profile = await self.parts.companies.find(company.company_key)
         return {
             'company': company.describe(),
             'reason': None,
-            'profile': await self.parts.companies.find(company.company_key),
+            'profile': profile,
+            'key_people': self._book.arrange(
+                (profile or {}).get('key_people') or {}
+            ),
+            'headquarters': self.locate((profile or {}).get('headquarters')),
+            'can_read_people': self.parts.people_extractor is not None,
             'documents': await self.parts.documents.for_company(
                 company.company_key,
                 COMPANY_DOCUMENTS,
@@ -411,6 +449,93 @@ class KnowledgeRoutes:
                 detail=f'No document {document_id} is stored.',
             )
         return document
+
+    def locate(
+        self, headquarters: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Adds map coordinates to a stored headquarters address.
+
+        Args:
+            headquarters (dict[str, Any] | None): The stored address, or None.
+
+        Returns:
+            dict[str, Any] | None: A copy with "location" (latitude, longitude, precision and place, or None when it cannot be placed) and "geocoder_ready", or None when there is no address.
+        """
+        if not headquarters:
+            return None
+        located = dict(headquarters)
+        geocoder = self.parts.geocoder
+        located['geocoder_ready'] = (
+            geocoder is not None and geocoder.available()
+        )
+        located['location'] = None
+        if located['geocoder_ready']:
+            located['location'] = geocoder.locate(
+                headquarters.get('postcode'),
+                headquarters.get('city'),
+                headquarters.get('country'),
+            )
+        return located
+
+    async def extract_people(
+        self,
+        instrument_id: str,
+        body: ExtractRequest,
+    ) -> dict[str, Any]:
+        """Reads the key people named in one of the company's uploaded documents with Claude, and stores them.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+            body (ExtractRequest): The document to read.
+
+        Returns:
+            dict[str, Any]: "found", the number of people read, and "key_people", the merged executives and board.
+
+        Raises:
+            fastapi.HTTPException: 503 without an API key, 404 for an unknown document, 400 for a document of another company or one that names nobody, 429 when today's token limit is used up, 502 when Claude fails.
+        """
+        extractor = self.parts.people_extractor
+        if extractor is None:
+            raise fastapi.HTTPException(
+                status_code=503,
+                detail='Reading key people from documents needs the Claude API key in INSTRUMENTS_EXPLORER_ANTHROPIC_API_KEY.',
+            )
+        company = await self._company(instrument_id)
+        document = await self.parts.documents.find(body.document_id)
+        if document is None:
+            raise fastapi.HTTPException(
+                status_code=404,
+                detail=f'No such document: {body.document_id!r}',
+            )
+        if document.get('company_key') != company.company_key:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail='That document belongs to another company.',
+            )
+        try:
+            people = await extractor.extract(
+                company.name, document.get('text') or ''
+            )
+        except key_people_extractor.ExtractionError as error:
+            status = 429 if 'limit' in str(error) else 400
+            raise fastapi.HTTPException(
+                status_code=status, detail=str(error)
+            ) from error
+        except anthropic.APIError as error:
+            raise fastapi.HTTPException(
+                status_code=502,
+                detail=f'The Claude API failed: {error}',
+            ) from error
+        await self.parts.service.store_extracted_people(
+            company,
+            people,
+            document.get('title') or 'an uploaded document',
+        )
+        profile = await self.parts.companies.find(company.company_key) or {}
+        return {
+            'found': len(people),
+            'key_people': self._book.arrange(profile.get('key_people') or {}),
+        }
 
     async def _company(self, instrument_id: str) -> Any:
         """Resolves an instrument's company for a POST route.

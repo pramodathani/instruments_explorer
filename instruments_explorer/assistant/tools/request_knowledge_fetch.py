@@ -16,7 +16,7 @@ class RequestKnowledgeFetchTool(base.BaseTool):
     """Offers the user a button that starts a knowledge fetch for a company."""
 
     NAME = 'request_knowledge_fetch'
-    DESCRIPTION = "Asks the user to confirm fetching a company's knowledge from the internet (NSE announcements, Yahoo Finance, Screener.in and news), which takes about twenty seconds. It does not fetch anything by itself: the user sees a button and decides. Use it when get_company shows nothing or old data and the question needs fresh company information. Tell the user you have asked, and do not wait for the result in this turn."
+    DESCRIPTION = "Asks the user to confirm fetching a company's knowledge from the internet (NSE announcements, Yahoo Finance with the headquarters and officers, Screener.in, the board of directors from the company registry, and news), which takes about twenty seconds. It does not fetch anything by itself: the user sees a button and decides. Use it when get_company shows nothing or old data and the question needs fresh company information. Tell the user you have asked, and do not wait for the result in this turn."
     INPUT_SCHEMA: ClassVar[dict[str, Any]] = {
         'type': 'object',
         'properties': {

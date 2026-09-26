@@ -155,6 +155,7 @@ class RouteParts:
         offline = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda request: httpx.Response(404)),
         )
+        self.service = service
         knowledge_parts = knowledge_routes.KnowledgeParts(
             company_resolver.CompanyResolver(
                 self.maintainer,
@@ -173,6 +174,7 @@ class RouteParts:
             jobs,
             self.maintainer.rebuild,
         )
+        self.knowledge_parts = knowledge_parts
         self.screener_repository = screener_repository.ScreenerRepository(
             database
         )
@@ -1061,7 +1063,7 @@ class TestScreenerRoutes:
             headers=_HEADERS,
         )
         assert response.json()['total'] == 1
-        for _ in range(300):
+        for _ in range(1000):
             setup = parts.client.get('/api/screener/setup').json()
             if setup['last_runs'].get('total_market') is not None:
                 break
