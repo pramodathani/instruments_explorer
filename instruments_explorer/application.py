@@ -19,11 +19,13 @@ from instruments_explorer.configuration import settings
 from instruments_explorer.configuration import (
     unified_broker_interface_configuration,
 )
+from instruments_explorer.indicators import indicator_catalogue
 from instruments_explorer.instruments import instrument_index_builder
 from instruments_explorer.instruments import instrument_index_maintainer
 from instruments_explorer.market import live_quote_hub
 from instruments_explorer.market import live_quote_reader
 from instruments_explorer.routes import auth_routes
+from instruments_explorer.routes import chart_routes
 from instruments_explorer.routes import frontend_routes
 from instruments_explorer.routes import instrument_routes
 from instruments_explorer.routes import live_routes
@@ -189,7 +191,7 @@ class Application:
             password_authenticator (authenticator.Authenticator): Checks the login password.
             store_checkers (Sequence[status_routes.StoreChecker]): Report whether UBI and each of the project's stores is reachable.
             maintainer (instrument_index_maintainer.InstrumentIndexMaintainer): Holds and refreshes the instrument index.
-            client (rest_client.UnifiedBrokerInterfaceClient): Reads instruments and quotes from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads instruments, quotes and candles from UBI.
             hub (live_quote_hub.LiveQuoteHub): Delivers live quotes to browsers.
             with_lifespan (bool): Whether start-up should open and refresh the index and start the quote reader, and shutdown close everything.
 
@@ -231,6 +233,11 @@ class Application:
             client,
             guard,
         )
+        charts = chart_routes.ChartRoutes(
+            client,
+            indicator_catalogue.IndicatorCatalogue(),
+            guard,
+        )
         live = live_routes.LiveRoutes(
             hub,
             guard,
@@ -243,6 +250,7 @@ class Application:
         web_application.include_router(authentication.router)
         web_application.include_router(status.router)
         web_application.include_router(instruments.router)
+        web_application.include_router(charts.router)
         web_application.include_router(live.router)
         web_application.include_router(frontend.router)
         return web_application

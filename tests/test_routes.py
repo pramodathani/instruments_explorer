@@ -499,3 +499,132 @@ class TestLiveRoute:
             ) as websocket,
         ):
             websocket.receive_json()
+
+
+class TestChartRoutes:
+    """Tests for the chart and indicator catalogue routes."""
+
+    def test_indicator_catalogue(self, tmp_path: Path) -> None:
+        """Checks that the catalogue lists the indicators.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        keys = []
+        for description in parts.client.get('/api/indicators').json():
+            keys.append(description['key'])
+        assert 'rsi' in keys
+        assert 'macd' in keys
+
+    def test_chart_with_indicators(self, tmp_path: Path) -> None:
+        """Checks candles, indicators, errors and the request passed to UBI.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.catalogue_client.prices_by_id[fakes.NIFTY_ID] = (
+            fakes.PricesMaker().document(100)
+        )
+        parts.log_in()
+        response = parts.client.get(
+            f'/api/instruments/{fakes.NIFTY_ID}/chart?interval=day&days=365&indicator=sma:20&indicator=macd&indicator=bogus'
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert len(body['candles']) == 100
+        titles = []
+        for result in body['indicators']:
+            titles.append(result['title'])
+        assert titles == [
+            'SMA 20',
+            'MACD 12, 26, 9',
+        ]
+        assert body['errors'] == [
+            "Unknown indicator: 'bogus'",
+        ]
+        assert body['has_volume'] is True
+        assert parts.catalogue_client.price_requests == [
+            (
+                fakes.NIFTY_ID,
+                'day',
+                450,
+                True,
+            ),
+        ]
+
+    def test_indicators_start_with_the_chart(self, tmp_path: Path) -> None:
+        """Checks that warm-up history is read, then trimmed from candles and lines alike.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        document = fakes.PricesMaker().document(100)
+        document['to'] = '2025-04-10'
+        parts.catalogue_client.prices_by_id[fakes.NIFTY_ID] = document
+        parts.log_in()
+        body = parts.client.get(
+            f'/api/instruments/{fakes.NIFTY_ID}/chart?days=30&indicator=sma:20'
+        ).json()
+        assert len(body['candles']) == 31
+        points = body['indicators'][0]['outputs'][0]['points']
+        assert len(points) == 31
+        assert points[0][0] == body['candles'][0][0]
+        assert parts.catalogue_client.price_requests[0][2] == 30 + 42
+
+    def test_no_warm_up_without_indicators(self, tmp_path: Path) -> None:
+        """Checks that a chart without indicators reads exactly its own range.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.catalogue_client.prices_by_id[fakes.NIFTY_ID] = (
+            fakes.PricesMaker().document(10)
+        )
+        parts.log_in()
+        parts.client.get(f'/api/instruments/{fakes.NIFTY_ID}/chart?days=90')
+        assert parts.catalogue_client.price_requests[0][2] == 90
+
+    def test_chart_with_no_candles(self, tmp_path: Path) -> None:
+        """Checks that an empty history is answered without indicators or errors.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        document = fakes.PricesMaker().document(0)
+        parts.catalogue_client.prices_by_id[fakes.NIFTY_ID] = document
+        parts.log_in()
+        body = parts.client.get(
+            f'/api/instruments/{fakes.NIFTY_ID}/chart?interval=5minute&days=30&indicator=rsi'
+        ).json()
+        assert body['candles'] == []
+        assert body['indicators'] == []
+        assert body['errors'] == []
+
+    @pytest.mark.parametrize(
+        'query',
+        [
+            'interval=7minute&days=30',
+            'interval=5minute&days=400',
+            'interval=day&days=0',
+        ],
+    )
+    def test_chart_refuses_bad_ranges(self, tmp_path: Path, query: str) -> None:
+        """Checks the interval and range checks.
+
+        Args:
+            tmp_path (Path): A temporary directory from pytest.
+            query (str): The query string to send.
+        """
+        parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
+        parts.log_in()
+        response = parts.client.get(
+            f'/api/instruments/{fakes.NIFTY_ID}/chart?{query}'
+        )
+        assert response.status_code == 400
+        assert parts.catalogue_client.price_requests == []

@@ -151,6 +151,38 @@ class UnifiedBrokerInterfaceClient:
             },
         )
 
+    async def prices(
+        self,
+        instrument_id: str,
+        interval: str,
+        days: int,
+        adjusted: bool,
+    ) -> Any:
+        """Reads an instrument's stored candles for the last so many days.
+
+        Args:
+            instrument_id (str): UBI's instrument id.
+            interval (str): The candle length, such as "day" or "5minute".
+            days (int): How many days back from today to read.
+            adjusted (bool): Whether to correct an adjustable instrument's prices for splits and bonuses.
+
+        Returns:
+            Any: A document with "columns", "candles", "price_basis", "adjustable" and "source".
+
+        Raises:
+            UnifiedBrokerInterfaceError: The request failed.
+        """
+        return await self._request(
+            'GET',
+            '/api/instruments/prices',
+            params={
+                'instrument_id': instrument_id,
+                'interval': interval,
+                'days': days,
+                'adjusted': 'true' if adjusted else 'false',
+            },
+        )
+
     async def _stream_master(
         self,
         token: str,
