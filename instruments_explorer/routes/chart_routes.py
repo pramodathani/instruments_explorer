@@ -12,13 +12,13 @@ import datetime
 from typing import Annotated, Any
 
 import fastapi
-from tradingmachine.ubi_client import exceptions
 
 from instruments_explorer.indicators import indicator_calculator
 from instruments_explorer.indicators import indicator_catalogue
 from instruments_explorer.market import candle_series
 from instruments_explorer.security import session_guard
-from instruments_explorer.unified_broker_interface import catalogue_gateway
+from instruments_explorer.unified_broker_interface import exceptions
+from instruments_explorer.unified_broker_interface import rest_client
 
 INTERVALS = [
     'day',
@@ -58,14 +58,14 @@ class ChartRoutes:
 
     def __init__(
         self,
-        client: catalogue_gateway.CatalogueGateway,
+        client: rest_client.UnifiedBrokerInterfaceClient,
         catalogue: indicator_catalogue.IndicatorCatalogue,
         guard: session_guard.SessionGuard,
     ):
         """Creates the routes.
 
         Args:
-            client (catalogue_gateway.CatalogueGateway): Reads candles from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads candles from UBI.
             catalogue (indicator_catalogue.IndicatorCatalogue): Lists the indicators.
             guard (session_guard.SessionGuard): Requires a logged-in session.
         """

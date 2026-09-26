@@ -4,19 +4,20 @@ UBI keeps the newest unified quote of each instrument in the Redis hash `unified
 
 Typical usage example:
 
-  reader = LiveQuoteReader(quote_gateway, hub)
+  reader = LiveQuoteReader(redis_source, hub)
   task = asyncio.create_task(reader.run())
 """
 
 import asyncio
 import logging
 
-from tradingmachine.ubi_client import exceptions
+import redis
 
 from instruments_explorer.market import live_quote_hub
-from instruments_explorer.unified_broker_interface import live_quote_gateway
+from instruments_explorer.unified_broker_interface import redis_reader
 
 _LOGGER = logging.getLogger(__name__)
+LIVE_QUOTES_HASH = 'unified:quotes:live'
 
 
 class LiveQuoteReader:
@@ -24,13 +25,13 @@ class LiveQuoteReader:
 
     Attributes:
         interval_seconds: How long to wait between one read and the next, in seconds.
-        batch_size: The most instruments asked about in one read.
+        batch_size: The most instruments asked about in one Redis call.
         retry_seconds: How long to wait after Redis fails, in seconds.
     """
 
     def __init__(
         self,
-        quote_gateway: live_quote_gateway.LiveQuoteGateway,
+        quote_redis_reader: redis_reader.RedisReader,
         hub: live_quote_hub.LiveQuoteHub,
         interval_seconds: float = 0.5,
         batch_size: int = 500,
@@ -39,16 +40,16 @@ class LiveQuoteReader:
         """Creates the reader.
 
         Args:
-            quote_gateway (live_quote_gateway.LiveQuoteGateway): Reads UBI's live quote hash through tradingmachine.
+            quote_redis_reader (redis_reader.RedisReader): Reads UBI's Redis.
             hub (live_quote_hub.LiveQuoteHub): Knows the watched instruments and receives the quotes.
             interval_seconds (float): How long to wait between one read and the next, in seconds.
-            batch_size (int): The most instruments asked about in one read.
+            batch_size (int): The most instruments asked about in one Redis call.
             retry_seconds (float): How long to wait after Redis fails, in seconds.
         """
         self.interval_seconds = interval_seconds
         self.batch_size = batch_size
         self.retry_seconds = retry_seconds
-        self._quote_gateway = quote_gateway
+        self._redis_reader = quote_redis_reader
         self._hub = hub
 
     async def run(self) -> None:
@@ -56,7 +57,7 @@ class LiveQuoteReader:
         while True:
             try:
                 await self.read_once()
-            except exceptions.UnreachableError as error:
+            except (redis.RedisError, OSError) as error:
                 _LOGGER.warning('Could not read UBI live quotes: %s', error)
                 await asyncio.sleep(self.retry_seconds)
             else:
@@ -69,13 +70,16 @@ class LiveQuoteReader:
             int: The number of quotes delivered.
 
         Raises:
-            UnreachableError: UBI's Redis could not be read.
+            redis.RedisError: Redis could not be read.
         """
         watched = sorted(self._hub.watched_ids())
         delivered = 0
         for start in range(0, len(watched), self.batch_size):
             batch = watched[start : start + self.batch_size]
-            documents = await self._quote_gateway.read(batch)
+            documents = await self._redis_reader.hash_get_many_json(
+                LIVE_QUOTES_HASH,
+                batch,
+            )
             for document in documents.values():
                 if not isinstance(document, dict):
                     continue

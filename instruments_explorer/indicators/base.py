@@ -1,20 +1,20 @@
 """The shared shape of every indicator: its name, parameters, outputs and where it is drawn.
 
-Each indicator is its own class in its family's module. This base holds only what is the same for all of them: describing the indicator to the browser, checking the parameters a request gives, and reading a computed column out of tradingmachine's answer. The computing itself is done by tradingmachine's analysis methods.
+Each indicator is its own class in its family's module. This base holds only what is the same for all of them: describing the indicator to the browser and checking the parameters a request gives.
 
 Typical usage example:
 
   indicator = moving_averages.SimpleMovingAverage()
   parameters = indicator.resolve(['50'])
-  values = indicator.compute(analysis, parameters)
+  values = indicator.compute(series, parameters)
 """
 
 from collections.abc import Sequence
 from typing import Any
 
 import numpy
-import pandas
-from tradingmachine.assets.analysis import candle_frame_analysis
+
+from instruments_explorer.market import candle_series
 
 PLACEMENTS = [
     'price',
@@ -257,33 +257,15 @@ class BaseIndicator:
                 total += int(parameters[parameter.name])
         return total
 
-    def column(
-        self,
-        frame: pandas.DataFrame | None,
-        name: str,
-    ) -> numpy.ndarray:
-        """Reads one column that a tradingmachine analysis method added, as numbers.
-
-        Args:
-            frame (pandas.DataFrame | None): The analysis method's answer, or None when there were no candles.
-            name (str): The column the method added, such as "sma_20".
-
-        Returns:
-            numpy.ndarray: The column as float64, one value per candle, or an empty array when there were no candles.
-        """
-        if frame is None:
-            return numpy.array([], dtype=numpy.float64)
-        return frame[name].to_numpy(dtype=numpy.float64)
-
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the indicator's lines over the candles with tradingmachine.
+        """Computes the indicator's lines over the candles.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): The resolved parameters.
 
         Returns:

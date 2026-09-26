@@ -9,12 +9,11 @@ Typical usage example:
 
 import asyncio
 
-from tradingmachine.ubi_client import exceptions
-
 from instruments_explorer.instruments import instrument_index_maintainer
 from instruments_explorer.knowledge import company_identity
 from instruments_explorer.storage import company_repository
-from instruments_explorer.unified_broker_interface import catalogue_gateway
+from instruments_explorer.unified_broker_interface import exceptions
+from instruments_explorer.unified_broker_interface import rest_client
 
 _COMPANY_SEGMENTS = [
     'equities',
@@ -36,14 +35,14 @@ class CompanyResolver:
     def __init__(
         self,
         maintainer: instrument_index_maintainer.InstrumentIndexMaintainer,
-        client: catalogue_gateway.CatalogueGateway,
+        client: rest_client.UnifiedBrokerInterfaceClient,
         companies: company_repository.CompanyRepository,
     ):
         """Creates the resolver.
 
         Args:
             maintainer (instrument_index_maintainer.InstrumentIndexMaintainer): Holds the instrument index.
-            client (catalogue_gateway.CatalogueGateway): Reads broker attributes such as the ISIN from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads broker attributes such as the ISIN from UBI.
             companies (company_repository.CompanyRepository): Holds the companies imported from NSE's equity list.
         """
         self._maintainer = maintainer

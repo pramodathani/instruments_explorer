@@ -9,9 +9,8 @@ import datetime
 from typing import Any
 
 import numpy
-import pandas
+import talib
 
-from instruments_explorer.indicators import candle_analysis_factory
 from instruments_explorer.market import candle_series
 
 MINIMUM_CANDLES = 30
@@ -28,14 +27,7 @@ _INDIA = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
 
 class StockMetrics:
-    """Computes returns, ranges, averages, crossovers, momentum, trend strength and volume figures for one stock.
-
-    The TA-Lib figures come from tradingmachine's analysis methods, all computed from one analysis of the stock's candles.
-    """
-
-    def __init__(self):
-        """Creates the metrics with the factory that prepares candles for tradingmachine."""
-        self._factory = candle_analysis_factory.CandleAnalysisFactory()
+    """Computes returns, ranges, averages, crossovers, momentum, trend strength and volume figures for one stock."""
 
     def compute(
         self, series: candle_series.CandleSeries
@@ -70,65 +62,42 @@ class StockMetrics:
         figures['low_52w'] = low
         figures['from_high'] = self._percent(close[last], high)
         figures['from_low'] = self._percent(close[last], low)
-        analysis = self._factory.create(series)
         averages = {}
         for period in [
             20,
             50,
             200,
         ]:
-            average = self._line(
-                analysis.simple_moving_average(window=period),
-                f'sma_{period}',
-            )
+            average = talib.SMA(close, timeperiod=period)
             averages[period] = average
             figures[f'sma_{period}'] = self._number(average[last])
             figures[f'above_sma_{period}'] = self._above(
                 close[last], average[last]
             )
-        ema = self._line(
-            analysis.exponential_moving_average(window=20), 'ema_20'
-        )
-        figures['ema_20'] = self._number(ema[last])
-        rsi = self._line(analysis.relative_strength_index(window=14), 'rsi_14')
-        figures['rsi_14'] = self._number(rsi[last])
+        figures['ema_20'] = self._number(talib.EMA(close, timeperiod=20)[last])
+        figures['rsi_14'] = self._number(talib.RSI(close, timeperiod=14)[last])
         figures['golden_cross_days'] = self._days_since_cross(
             averages[50], averages[200], upward=True
         )
         figures['death_cross_days'] = self._days_since_cross(
             averages[50], averages[200], upward=False
         )
-        macd_frame = analysis.moving_average_convergence_divergence(
-            fast_period=12,
-            slow_period=26,
-            signal_period=9,
-        )
-        macd = self._line(macd_frame, 'macd_12_26_9')
-        signal = self._line(macd_frame, 'macd_12_26_9_signal')
-        histogram = self._line(macd_frame, 'macd_12_26_9_hist')
+        macd, signal, histogram = talib.MACD(close, 12, 26, 9)
         figures['macd'] = self._number(macd[last])
         figures['macd_signal'] = self._number(signal[last])
         figures['macd_histogram'] = self._number(histogram[last])
         figures['macd_cross_days'] = self._days_since_cross(
             macd, signal, upward=True
         )
-        adx = self._line(
-            analysis.average_directional_movement_index(window=14),
-            'adx_14',
+        figures['adx_14'] = self._number(
+            talib.ADX(series.high, series.low, close, timeperiod=14)[last]
         )
-        figures['adx_14'] = self._number(adx[last])
-        natr = self._line(
-            analysis.normalized_average_true_range(window=14),
-            'natr14',
+        figures['natr_14'] = self._number(
+            talib.NATR(series.high, series.low, close, timeperiod=14)[last]
         )
-        figures['natr_14'] = self._number(natr[last])
-        bands = analysis.bollinger_bands(
-            window=20,
-            standard_deviations_up=2,
-            standard_deviations_down=2,
+        upper, _, lower = talib.BBANDS(
+            close, timeperiod=20, nbdevup=2, nbdevdn=2, matype=0
         )
-        upper = self._line(bands, 'bb_upper_20')
-        lower = self._line(bands, 'bb_lower_20')
         width = upper[last] - lower[last]
         figures['percent_b'] = None
         if not numpy.isnan(width) and width > 0:
@@ -151,18 +120,6 @@ class StockMetrics:
                 float(close[last]) * average_volume, 2
             )
         return figures
-
-    def _line(self, frame: pandas.DataFrame, name: str) -> numpy.ndarray:
-        """Reads one column that a tradingmachine analysis method added.
-
-        Args:
-            frame (pandas.DataFrame): The analysis method's answer.
-            name (str): The column the method added, such as "sma_20".
-
-        Returns:
-            numpy.ndarray: The column as float64, one value per candle.
-        """
-        return frame[name].to_numpy(dtype=numpy.float64)
 
     def _change(self, close: numpy.ndarray, days: int) -> float | None:
         """Works out the percentage change over a number of candles.
@@ -235,7 +192,7 @@ class StockMetrics:
         return None
 
     def _number(self, value: float) -> float | None:
-        """Turns an indicator value into a stored number.
+        """Turns a TA-Lib value into a stored number.
 
         Args:
             value (float): The value, NaN when there is none yet.

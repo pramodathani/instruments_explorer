@@ -2,13 +2,14 @@
 
 Typical usage example:
 
-  values = AverageDirectionalIndex().compute(analysis, {'period': 14})
+  values = AverageDirectionalIndex().compute(series, {'period': 14})
 """
 
 import numpy
-from tradingmachine.assets.analysis import candle_frame_analysis
+import talib
 
 from instruments_explorer.indicators import base
+from instruments_explorer.market import candle_series
 
 _FAMILY = 'Trend'
 
@@ -53,24 +54,25 @@ class ParabolicSar(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the stop-and-reverse level with tradingmachine.
+        """Computes the stop-and-reverse level.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "acceleration" and "maximum".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        frame = analysis.parabolic_sar(
-            acceleration=parameters['acceleration'],
-            maximum=parameters['maximum'],
-        )
         return {
-            'value': self.column(frame, 'psar'),
+            'value': talib.SAR(
+                series.high,
+                series.low,
+                acceleration=parameters['acceleration'],
+                maximum=parameters['maximum'],
+            ),
         }
 
 
@@ -110,26 +112,38 @@ class AverageDirectionalIndex(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the index and its two directional lines with tradingmachine.
+        """Computes the index and its two directional lines.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "adx", "plus" and "minus".
         """
-        period = int(parameters['period'])
-        adx_frame = analysis.average_directional_movement_index(window=period)
-        plus_frame = analysis.plus_directional_indicator(window=period)
-        minus_frame = analysis.minus_directional_indicator(window=period)
+        period = parameters['period']
         return {
-            'adx': self.column(adx_frame, f'adx_{period}'),
-            'plus': self.column(plus_frame, f'plus_di_{period}'),
-            'minus': self.column(minus_frame, f'minus_di_{period}'),
+            'adx': talib.ADX(
+                series.high,
+                series.low,
+                series.close,
+                timeperiod=period,
+            ),
+            'plus': talib.PLUS_DI(
+                series.high,
+                series.low,
+                series.close,
+                timeperiod=period,
+            ),
+            'minus': talib.MINUS_DI(
+                series.high,
+                series.low,
+                series.close,
+                timeperiod=period,
+            ),
         }
 
 
@@ -166,21 +180,24 @@ class Aroon(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the two Aroon lines with tradingmachine.
+        """Computes the up and down lines.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "up" and "down".
         """
-        period = int(parameters['period'])
-        frame = analysis.aroon(window=period)
+        down, up = talib.AROON(
+            series.high,
+            series.low,
+            timeperiod=parameters['period'],
+        )
         return {
-            'up': self.column(frame, f'aroon_up_{period}'),
-            'down': self.column(frame, f'aroon_down_{period}'),
+            'up': up,
+            'down': down,
         }

@@ -23,7 +23,7 @@ The full, approved build plan is in `~/.claude/plans/there-is-a-sibling-starry-l
 
 | Task | Command |
 |---|---|
-| Create the environment | `python3.14 -m venv .venv && .venv/bin/pip install -r requirements.txt` (run from the project root; it installs `../tradingmachine` in editable mode) |
+| Create the environment | `python3.14 -m venv .venv && .venv/bin/pip install -r requirements.txt` |
 | Start MongoDB and ChromaDB | `docker compose up -d --wait` |
 | Run all tests | `.venv/bin/pytest` |
 | Run one test | `.venv/bin/pytest tests/test_routes.py::TestRoutes::test_login_and_logout` |
@@ -49,10 +49,10 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
 - **Security.** `security/` holds the argon2 password check with lockout, the signed session cookie, and the `X-Requested-With: instruments-explorer` header that every POST must carry.
 - **Settings.** All settings come from `INSTRUMENTS_EXPLORER_*` variables through `configuration/settings.py`. `.env.example` lists them all.
 - **Own stores.** `docker-compose.yml` runs MongoDB (host port 3003) and ChromaDB (host port 3004) on their own Docker network, `instruments_explorer_network`, bound to 127.0.0.1. `storage/` holds one connection class per store; each has a `check()` used by `/api/status`.
-- **ubi access** (`unified_broker_interface/`). ubi is reached only through the sibling library tradingmachine (`~/Projects/tradingmachine`, installed editable by `requirements.txt`), and only through ubi's published host ports: the REST API at 127.0.0.1:8080, Redis at 1002 and MongoDB at 1003. Their addresses and credentials are read from ubi's own `.env` by `configuration/unified_broker_interface_configuration.py` and handed to tradingmachine in code, so no copy of ubi's passwords is kept here and tradingmachine's own `.env` is never loaded.
-  - `TradingmachineComponents` builds tradingmachine's `UnifiedBrokerInterface` client, its `StoredLoginTokenSource` (uses the token ubi has stored in Redis or MongoDB and connects only when none is usable), its `InstrumentCatalogue` and its Redis `LiveQuoteReader`.
-  - tradingmachine is blocking, so `CatalogueGateway` runs each read in a worker thread behind the same seven async methods the old client had: greeting, segments, the streamed master, details, additional details, quote and prices. `LiveQuoteGateway` does the same for bulk live quotes. Errors are tradingmachine's `tradingmachine.ubi_client.exceptions` classes.
-  - Missing ubi features are added to tradingmachine, not here. A change in tradingmachine reaches the running service at its next restart.
+- **ubi access** (`unified_broker_interface/`). ubi is reached only through its published host ports: the REST API at 127.0.0.1:8080, Redis at 1002 and MongoDB at 1003. Their addresses and credentials are read from ubi's own `.env` by `configuration/unified_broker_interface_configuration.py`, so no copy of ubi's passwords is kept here.
+  - `AccessTokenProvider` uses the token ubi has stored in Redis (or MongoDB) and connects only when none is usable. `RedisReader` and `MongoReader` expose read commands only.
+  - `rest_client.py` is read-only: greeting, segments, the streamed master, details, additional details and quote.
+  - These modules, their error classes and their tests are copied from sridhara; keep them in step with sridhara when fixing either.
 - **Instrument index** (`instruments/`).
   - `InstrumentIndexBuilder` streams ubi's `master` (about 540,000 instruments, 127 MB, 7 seconds) into `data/instruments/instruments-<mapping date>.sqlite`. It keeps the roughly 236,000 that have not expired, with an asset class, a readable name and full-text search words for each.
   - `InstrumentIndex.search()` returns one page of results, the total and a count for every filter value. Each filter's counts are taken with every other filter applied but not its own.
@@ -60,11 +60,10 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - Filter column names come only from `FACET_COLUMNS`, and every value is a bound parameter.
   - ubi has no bulk route for lot sizes or company names, so they are not filterable. Lot size comes from ubi's `details` on the instrument page, and company names join the index in phase 5.
 - **Charts and indicators** (`indicators/`, `routes/chart_routes.py`, `market/candle_series.py`).
-  - `GET /api/instruments/{id}/chart?interval=&days=&adjusted=&indicator=rsi:14&indicator=macd:12:26:9` reads candles from ubi's `prices` route and computes TA-Lib indicators on the server with tradingmachine's analysis methods: `CandleAnalysisFactory` turns the candles into one `CandleFrameAnalysis`, with missing volume counted as zero, and each indicator calls one method on it. tradingmachine's `triple_exponential_moving_average` is Tillson's T3, so TEMA uses `mulloy_triple_exponential_moving_average`.
+  - `GET /api/instruments/{id}/chart?interval=&days=&adjusted=&indicator=rsi:14&indicator=macd:12:26:9` reads candles from ubi's `prices` route and computes TA-Lib indicators on the server.
   - An indicator request is its key followed by colon-separated parameters in the indicator's order; parameters left out take their defaults.
   - The route reads extra warm-up history so every indicator has values from the chart's first candle, then trims candles and lines back to the requested range.
   - Each indicator is its own class in its family's module (`moving_averages.py`, `volatility.py`, `trend.py`, `momentum.py`, `volume.py`, `patterns.py`), over a shallow `BaseIndicator`. `IndicatorCatalogue` lists them explicitly; add a new indicator there.
-  - `tests/test_golden_outputs.py` compares every indicator, the screener figures and the chart answer with golden files recorded before the move to tradingmachine; regenerate them only for an intended change, as `.claude/notes/tests/golden_outputs.py.md` describes.
   - ubi stores only daily candles for most instruments; intraday history exists only where someone loaded it by hand.
 - **Derivatives** (`derivatives/`, `routes/derivative_routes.py`, `market/quote_snapshot_reader.py`).
   - `/api/derivatives/underlyings`, `/expiries`, `/chain` and `/surface` take `exchange` and `underlying`, plus `expiry` for the chain.
@@ -101,7 +100,7 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
   - Each tool is its own class in `assistant/tools/` over `BaseTool`, calling the pages' own route handlers through `AssistantServices`; `ToolBox` lists them in a fixed order plus the server-side `web_search_20260209` tool. Inputs are checked against the schema before running, because eager input streaming turns off server-side validation.
   - `request_knowledge_fetch` only shows the user a button; `show_in_ui` builds page addresses from structured fields.
   - The daily limit counts input, output and cache-write tokens per India day in `chat_usage`, not cache reads.
-- **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in ubi's Redis twice a second through `LiveQuoteGateway`, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
+- **Live quotes** (`market/`). `LiveQuoteReader` reads `unified:quotes:live` in Redis twice a second, but only for the instruments some browser watches. `LiveQuoteHub` hands each changed quote to the watching `LiveConnection`s, which merge quotes per instrument and send them in batches every quarter second over the `/api/live` WebSocket. That WebSocket checks the Origin header and the session before accepting.
 - **Frontend** (`frontend/`). React 19, TypeScript 7, Vite 8 and react-router 8, with three.js and Highcharts / Highcharts Stock.
   - The Explore page (`explore/`) keeps its whole search in the page address through `SearchState`, so the back button, reloading and shared links keep the search.
   - The instrument page (`instrument/`) loads a quote over REST once, then follows it through `useLiveQuote`, which retains the instrument on the shared `LiveSocket` (`live/`).
@@ -126,7 +125,7 @@ The browser talks only to this project's FastAPI server. The server reads ubi an
 
 ## Rules
 
-- **Never write to ubi or its stores.** Never change ubi's code. Never call ubi's `/api/session/connect` when a stored token is usable, because the first connect after 07:00 logs out every other ubi client. Never import tradingmachine's `orders`, `accounts` or instrument classes (`tradingmachine.assets` other than `analysis`), which can place orders; `tests/test_read_only_sources.py` checks this.
+- **Never write to ubi or its stores.** Never change ubi's code. Never call ubi's `/api/session/connect` when a stored token is usable, because every connect logs out every other ubi client.
 - **Keep the Docker network separate.** Containers stay on `instruments_explorer_network`. Never attach them to `unified_broker_interface_network` or any other project's network.
 - **Chat assistant.**
   - The default model is `claude-opus-5-5`. Effort is always passed explicitly, because that model defaults to `medium`.

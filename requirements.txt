@@ -6,7 +6,6 @@ fastapi==0.141.1
 httpx==0.28.1
 itsdangerous==2.2.0
 numpy==2.5.3
-pandas==3.0.6
 pydantic-settings==2.15.0
 pydantic==2.13.5
 pymongo==4.18.2
@@ -20,4 +19,3 @@ starlette==1.7.0
 TA-Lib==0.8.1
 uvicorn[standard]==0.54.0
 yfinance==1.7.0
--e ../tradingmachine

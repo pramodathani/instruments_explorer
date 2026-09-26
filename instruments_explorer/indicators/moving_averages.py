@@ -2,13 +2,14 @@
 
 Typical usage example:
 
-  values = SimpleMovingAverage().compute(analysis, {'period': 50})
+  values = SimpleMovingAverage().compute(series, {'period': 50})
 """
 
 import numpy
-from tradingmachine.assets.analysis import candle_frame_analysis
+import talib
 
 from instruments_explorer.indicators import base
+from instruments_explorer.market import candle_series
 
 _FAMILY = 'Moving averages'
 
@@ -38,22 +39,20 @@ class SimpleMovingAverage(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the average with tradingmachine.
+        """Computes the average.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.simple_moving_average(window=period)
         return {
-            'value': self.column(frame, f'sma_{period}'),
+            'value': talib.SMA(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -82,22 +81,20 @@ class ExponentialMovingAverage(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the average with tradingmachine.
+        """Computes the average.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.exponential_moving_average(window=period)
         return {
-            'value': self.column(frame, f'ema_{period}'),
+            'value': talib.EMA(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -126,22 +123,20 @@ class WeightedMovingAverage(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the average with tradingmachine.
+        """Computes the average.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.weighted_moving_average(window=period)
         return {
-            'value': self.column(frame, f'wma_{period}'),
+            'value': talib.WMA(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -170,22 +165,20 @@ class DoubleExponentialMovingAverage(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the average with tradingmachine.
+        """Computes the average.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.double_exponential_moving_average(window=period)
         return {
-            'value': self.column(frame, f'dema_{period}'),
+            'value': talib.DEMA(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -214,20 +207,18 @@ class TripleExponentialMovingAverage(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes Mulloy's triple exponential average with tradingmachine.
+        """Computes the average.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.mulloy_triple_exponential_moving_average(window=period)
         return {
-            'value': self.column(frame, f'tema_{period}'),
+            'value': talib.TEMA(series.close, timeperiod=parameters['period']),
         }

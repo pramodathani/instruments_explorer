@@ -76,12 +76,11 @@ from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import mongo_connection
 from instruments_explorer.storage import screener_repository
-from instruments_explorer.unified_broker_interface import catalogue_gateway
+from instruments_explorer.unified_broker_interface import access_token_provider
 from instruments_explorer.unified_broker_interface import health_checker
-from instruments_explorer.unified_broker_interface import live_quote_gateway
-from instruments_explorer.unified_broker_interface import (
-    tradingmachine_components,
-)
+from instruments_explorer.unified_broker_interface import mongo_reader
+from instruments_explorer.unified_broker_interface import redis_reader
+from instruments_explorer.unified_broker_interface import rest_client
 from instruments_explorer.universe import universe_service
 from instruments_explorer.utilities import clock
 
@@ -111,7 +110,9 @@ class Application:
         self.time_source = clock.SystemClock()
         self._mongo = None
         self._chroma = None
-        self._tradingmachine = None
+        self._http_client = None
+        self._redis_reader = None
+        self._mongo_reader = None
         self._maintainer = None
         self._quote_reader = None
         self._web_client = None
@@ -158,20 +159,30 @@ class Application:
         ubi_configuration = unified_broker_interface_configuration.UnifiedBrokerInterfaceConfiguration.load(
             explorer_settings.unified_broker_interface_directory
         )
-        self._tradingmachine = (
-            tradingmachine_components.TradingmachineComponents(
-                ubi_configuration,
-                explorer_settings.ubi_request_timeout_seconds,
-                explorer_settings.ubi_may_connect,
-                explorer_settings.ubi_connect_cooldown_seconds,
-                self.time_source,
-            )
+        timeout = explorer_settings.ubi_request_timeout_seconds
+        self._redis_reader = redis_reader.RedisReader.from_configuration(
+            ubi_configuration,
+            timeout,
         )
-        client = catalogue_gateway.CatalogueGateway(
-            self._tradingmachine.catalogue
+        self._mongo_reader = mongo_reader.MongoReader.from_configuration(
+            ubi_configuration,
+            timeout,
         )
-        quote_gateway = live_quote_gateway.LiveQuoteGateway(
-            self._tradingmachine.live_quote_reader
+        self._http_client = httpx.AsyncClient(
+            base_url=ubi_configuration.rest_api_base_url,
+            timeout=timeout,
+        )
+        token_provider = access_token_provider.AccessTokenProvider(
+            self._http_client,
+            self._redis_reader,
+            self._mongo_reader,
+            self.time_source,
+            may_connect=explorer_settings.ubi_may_connect,
+            connect_cooldown_seconds=explorer_settings.ubi_connect_cooldown_seconds,
+        )
+        client = rest_client.UnifiedBrokerInterfaceClient(
+            self._http_client,
+            token_provider,
         )
         database = self._mongo.database()
         companies = company_repository.CompanyRepository(database)
@@ -189,12 +200,12 @@ class Application:
         )
         hub = live_quote_hub.LiveQuoteHub()
         self._quote_reader = live_quote_reader.LiveQuoteReader(
-            quote_gateway,
+            self._redis_reader,
             hub,
             interval_seconds=explorer_settings.live_quote_interval_seconds,
         )
         snapshot_reader = quote_snapshot_reader.QuoteSnapshotReader(
-            quote_gateway,
+            self._redis_reader,
         )
         chain_builder = option_chain_builder.OptionChainBuilder(
             self._maintainer,
@@ -212,7 +223,7 @@ class Application:
         screener_parts = self._build_screener(client, companies, hub)
         ubi_checker = health_checker.HealthChecker(
             client,
-            self._tradingmachine.token_source,
+            token_provider,
             self.time_source,
         )
         password_authenticator = authenticator.Authenticator(
@@ -259,14 +270,14 @@ class Application:
 
     def _build_screener(
         self,
-        client: catalogue_gateway.CatalogueGateway,
+        client: rest_client.UnifiedBrokerInterfaceClient,
         companies: company_repository.CompanyRepository,
         hub: live_quote_hub.LiveQuoteHub,
     ) -> screener_routes.ScreenerParts:
         """Builds the screener: its universe, figures job, service and daily scheduler.
 
         Args:
-            client (catalogue_gateway.CatalogueGateway): Reads candles from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads candles from UBI.
             companies (company_repository.CompanyRepository): Knows the index members and sectors.
             hub (live_quote_hub.LiveQuoteHub): Announces run progress to browsers.
 
@@ -302,14 +313,14 @@ class Application:
 
     def _build_knowledge(
         self,
-        client: catalogue_gateway.CatalogueGateway,
+        client: rest_client.UnifiedBrokerInterfaceClient,
         companies: company_repository.CompanyRepository,
         hub: live_quote_hub.LiveQuoteHub,
     ) -> knowledge_routes.KnowledgeParts:
         """Builds the knowledge pipeline: the polite web client, the fetchers, storage, the job runner and the scheduler.
 
         Args:
-            client (catalogue_gateway.CatalogueGateway): Reads broker attributes from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads broker attributes from UBI.
             companies (company_repository.CompanyRepository): Stores company documents.
             hub (live_quote_hub.LiveQuoteHub): Announces job progress to browsers.
 
@@ -421,7 +432,7 @@ class Application:
         password_authenticator: authenticator.Authenticator,
         store_checkers: Sequence[status_routes.StoreChecker],
         maintainer: instrument_index_maintainer.InstrumentIndexMaintainer,
-        client: catalogue_gateway.CatalogueGateway,
+        client: rest_client.UnifiedBrokerInterfaceClient,
         hub: live_quote_hub.LiveQuoteHub,
         chain_builder: option_chain_builder.OptionChainBuilder,
         knowledge_parts: knowledge_routes.KnowledgeParts,
@@ -438,7 +449,7 @@ class Application:
             password_authenticator (authenticator.Authenticator): Checks the login password.
             store_checkers (Sequence[status_routes.StoreChecker]): Report whether UBI and each of the project's stores is reachable.
             maintainer (instrument_index_maintainer.InstrumentIndexMaintainer): Holds and refreshes the instrument index.
-            client (catalogue_gateway.CatalogueGateway): Reads instruments, quotes and candles from UBI.
+            client (rest_client.UnifiedBrokerInterfaceClient): Reads instruments, quotes and candles from UBI.
             hub (live_quote_hub.LiveQuoteHub): Delivers live quotes to browsers.
             chain_builder (option_chain_builder.OptionChainBuilder): Builds option chains and volatility surfaces.
             knowledge_parts (knowledge_routes.KnowledgeParts): The knowledge pipeline's components.
@@ -575,8 +586,10 @@ class Application:
                     await task
             if self._maintainer.current_index is not None:
                 self._maintainer.current_index.close()
+            await self._http_client.aclose()
             await self._web_client.aclose()
-            await asyncio.to_thread(self._tradingmachine.close)
+            await self._redis_reader.close()
+            await asyncio.to_thread(self._mongo_reader.close)
             await self._mongo.close()
             await self._chroma.close()
             if self._chat_parts.client is not None:

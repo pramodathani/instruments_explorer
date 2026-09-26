@@ -4,13 +4,11 @@ import asyncio
 from typing import Any
 
 import pytest
-from tradingmachine.ubi_client import exceptions
 
 from instruments_explorer.market import live_connection
 from instruments_explorer.market import live_quote_hub
 from instruments_explorer.market import live_quote_reader
 from instruments_explorer.market import quote_encoder
-from instruments_explorer.unified_broker_interface import live_quote_gateway
 from tests import fakes
 
 
@@ -172,8 +170,10 @@ class TestLiveQuoteReader:
         quotes = {
             'id-a': QuoteMaker().quote('id-a', 101.0, 1.0),
         }
-        quote_gateway = live_quote_gateway.LiveQuoteGateway(
-            fakes.FakeLiveQuoteSource(quotes)
+        redis_source = fakes.FakeRedisReader(
+            {
+                live_quote_reader.LIVE_QUOTES_HASH: quotes,
+            }
         )
         hub = live_quote_hub.LiveQuoteHub()
         hub.add_connection(
@@ -184,7 +184,7 @@ class TestLiveQuoteReader:
             )
         )
         hub.subscribe('browser', ['id-a'])
-        reader = live_quote_reader.LiveQuoteReader(quote_gateway, hub)
+        reader = live_quote_reader.LiveQuoteReader(redis_source, hub)
         assert asyncio.run(reader.read_once()) == 1
         assert asyncio.run(reader.read_once()) == 0
         quotes['id-a'] = QuoteMaker().quote('id-a', 102.0, 2.0)
@@ -192,37 +192,13 @@ class TestLiveQuoteReader:
 
     def test_read_once_asks_nothing_when_nobody_watches(self) -> None:
         """Checks that Redis is not read without watchers."""
-        source = fakes.FakeLiveQuoteSource()
+        redis_source = fakes.FakeRedisReader()
         reader = live_quote_reader.LiveQuoteReader(
-            live_quote_gateway.LiveQuoteGateway(source),
+            redis_source,
             live_quote_hub.LiveQuoteHub(),
         )
         assert asyncio.run(reader.read_once()) == 0
-        assert source.reads == []
-
-    def test_redis_failure_is_raised_for_the_retry_loop(self) -> None:
-        """Checks that a Redis failure reaches run, which waits and tries again.
-
-        Raises:
-            AssertionError: No UnreachableError was raised.
-        """
-        source = fakes.FakeLiveQuoteSource()
-        source.failing = True
-        hub = live_quote_hub.LiveQuoteHub()
-        hub.add_connection(
-            live_connection.LiveConnection(
-                'browser',
-                fakes.RecordingSocket(),
-                fakes.FixedClock(0.0),
-            )
-        )
-        hub.subscribe('browser', ['id-a'])
-        reader = live_quote_reader.LiveQuoteReader(
-            live_quote_gateway.LiveQuoteGateway(source),
-            hub,
-        )
-        with pytest.raises(exceptions.UnreachableError):
-            asyncio.run(reader.read_once())
+        assert redis_source.hash_reads == []
 
 
 class TestLiveConnection:

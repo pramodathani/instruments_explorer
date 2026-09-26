@@ -25,9 +25,3 @@ The figures hold returns for 1, 5, 21, 63 and 252 trading days and averages for 
 ## Odd values seen in real data
 
 HG Infra showed a volume 221 times its 20-day average, most likely one large block deal, and PolicyBazaar a 36% one-day fall. Both come straight from ubi's stored candles; the screener does not second-guess them.
-
-## Figures computed by tradingmachine since 2026-09-26
-
-`StockMetrics` used to call TA-Lib directly for its SMA 20/50/200, EMA 20, RSI 14, MACD 12/26/9, ADX 14, NATR 14 and Bollinger %B figures. Since 2026-09-26 it builds one `CandleFrameAnalysis` per stock with `indicators/candle_analysis_factory.py` and reads those figures from tradingmachine's analysis methods, like the chart does. The returns, 52-week range, crossover counts and volume figures are plain arithmetic and stay in the class. The figures were compared with the old code on nine prices fixtures and are identical; see `.claude/notes/instruments_explorer/indicators/README.md`.
-
-The per-stock computation takes about 2 ms instead of about 0.2 ms, which made `tests/test_routes.py::TestScreenerRoutes::test_refresh_then_screen` fail: Starlette's `TestClient`, used without `with`, runs each request on its own event loop and cancels tasks left running when the request ends, so the snapshot job only survived before because it finished inside the refresh request. The test now keeps one event loop open with `with parts.client:`. The running service is not affected, because uvicorn keeps one event loop for its whole life.

@@ -2,13 +2,14 @@
 
 Typical usage example:
 
-  values = RelativeStrengthIndex().compute(analysis, {'period': 14})
+  values = RelativeStrengthIndex().compute(series, {'period': 14})
 """
 
 import numpy
-from tradingmachine.assets.analysis import candle_frame_analysis
+import talib
 
 from instruments_explorer.indicators import base
+from instruments_explorer.market import candle_series
 
 _FAMILY = 'Momentum'
 
@@ -42,22 +43,20 @@ class RelativeStrengthIndex(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the index with tradingmachine.
+        """Computes the index.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.relative_strength_index(window=period)
         return {
-            'value': self.column(frame, f'rsi_{period}'),
+            'value': talib.RSI(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -99,31 +98,28 @@ class MovingAverageConvergenceDivergence(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the MACD line, its signal and their difference with tradingmachine.
+        """Computes the line, its signal and their difference.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "fast", "slow" and "signal".
 
         Returns:
             dict[str, numpy.ndarray]: "macd", "signal" and "histogram".
         """
-        fast = int(parameters['fast'])
-        slow = int(parameters['slow'])
-        signal = int(parameters['signal'])
-        frame = analysis.moving_average_convergence_divergence(
-            fast_period=fast,
-            slow_period=slow,
-            signal_period=signal,
+        macd, signal, histogram = talib.MACD(
+            series.close,
+            fastperiod=parameters['fast'],
+            slowperiod=parameters['slow'],
+            signalperiod=parameters['signal'],
         )
-        label = f'macd_{fast}_{slow}_{signal}'
         return {
-            'macd': self.column(frame, label),
-            'signal': self.column(frame, f'{label}_signal'),
-            'histogram': self.column(frame, f'{label}_hist'),
+            'macd': macd,
+            'signal': signal,
+            'histogram': histogram,
         }
 
 
@@ -162,30 +158,31 @@ class Stochastic(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the slow %K and %D lines with tradingmachine.
+        """Computes %K and %D.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "fast_k", "slow_k" and "slow_d".
 
         Returns:
             dict[str, numpy.ndarray]: "k" and "d".
         """
-        slow_k = int(parameters['slow_k'])
-        slow_d = int(parameters['slow_d'])
-        frame = analysis.stochastic_oscillator(
-            fast_k_period=int(parameters['fast_k']),
-            slow_k_period=slow_k,
-            slow_k_moving_average_type=0,
-            slow_d_period=slow_d,
-            slow_d_moving_average_type=0,
+        k_line, d_line = talib.STOCH(
+            series.high,
+            series.low,
+            series.close,
+            fastk_period=parameters['fast_k'],
+            slowk_period=parameters['slow_k'],
+            slowk_matype=0,
+            slowd_period=parameters['slow_d'],
+            slowd_matype=0,
         )
         return {
-            'k': self.column(frame, f'slowk_{slow_k}'),
-            'd': self.column(frame, f'slowd_{slow_d}'),
+            'k': k_line,
+            'd': d_line,
         }
 
 
@@ -218,22 +215,25 @@ class CommodityChannelIndex(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the index with tradingmachine.
+        """Computes the index.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.commodity_channel_index(window=period)
         return {
-            'value': self.column(frame, f'cci_{period}'),
+            'value': talib.CCI(
+                series.high,
+                series.low,
+                series.close,
+                timeperiod=parameters['period'],
+            ),
         }
 
 
@@ -266,22 +266,25 @@ class WilliamsPercentRange(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes Williams %R with tradingmachine.
+        """Computes %R.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.williams_percent_r(window=period)
         return {
-            'value': self.column(frame, f'willr_{period}'),
+            'value': talib.WILLR(
+                series.high,
+                series.low,
+                series.close,
+                timeperiod=parameters['period'],
+            ),
         }
 
 
@@ -313,22 +316,20 @@ class RateOfChange(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the rate of change with tradingmachine.
+        """Computes the rate of change.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
-            dict[str, numpy.ndarray]: "value".
+            dict[str, numpy.ndarray]: "value", in percent.
         """
-        period = int(parameters['period'])
-        frame = analysis.rate_of_change(window=period)
         return {
-            'value': self.column(frame, f'roc_{period}'),
+            'value': talib.ROC(series.close, timeperiod=parameters['period']),
         }
 
 
@@ -362,20 +363,24 @@ class MoneyFlowIndex(base.BaseIndicator):
 
     def compute(
         self,
-        analysis: candle_frame_analysis.CandleFrameAnalysis,
+        series: candle_series.CandleSeries,
         parameters: dict[str, float],
     ) -> dict[str, numpy.ndarray]:
-        """Computes the money flow index with tradingmachine, counting missing volume as zero.
+        """Computes the index, treating a missing volume as zero.
 
         Args:
-            analysis (candle_frame_analysis.CandleFrameAnalysis): The candles, ready for tradingmachine's analysis methods.
+            series (candle_series.CandleSeries): The candles.
             parameters (dict[str, float]): "period".
 
         Returns:
             dict[str, numpy.ndarray]: "value".
         """
-        period = int(parameters['period'])
-        frame = analysis.money_flow_index(window=period)
         return {
-            'value': self.column(frame, f'mfi_{period}'),
+            'value': talib.MFI(
+                series.high,
+                series.low,
+                series.close,
+                numpy.nan_to_num(series.volume),
+                timeperiod=parameters['period'],
+            ),
         }

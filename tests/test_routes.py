@@ -8,7 +8,6 @@ import fastapi.testclient
 import httpx
 import pytest
 import starlette.websockets
-from tradingmachine.ubi_client import exceptions
 
 from instruments_explorer import application
 from instruments_explorer.configuration import settings
@@ -36,6 +35,7 @@ from instruments_explorer.storage import conversation_repository
 from instruments_explorer.storage import document_repository
 from instruments_explorer.storage import fetch_job_repository
 from instruments_explorer.storage import screener_repository
+from instruments_explorer.unified_broker_interface import exceptions
 from instruments_explorer.universe import universe_service
 from tests import fakes
 
@@ -1055,20 +1055,19 @@ class TestScreenerRoutes:
         parts = RouteParts(tmp_path / 'dist', tmp_path / 'index')
         self._prepare(parts)
         parts.log_in()
-        with parts.client:
-            response = parts.client.post(
-                '/api/screener/refresh',
-                json={
-                    'universe': 'total_market',
-                },
-                headers=_HEADERS,
-            )
-            assert response.json()['total'] == 1
-            for _ in range(1000):
-                setup = parts.client.get('/api/screener/setup').json()
-                if setup['last_runs'].get('total_market') is not None:
-                    break
-                asyncio.run(asyncio.sleep(0.01))
+        response = parts.client.post(
+            '/api/screener/refresh',
+            json={
+                'universe': 'total_market',
+            },
+            headers=_HEADERS,
+        )
+        assert response.json()['total'] == 1
+        for _ in range(1000):
+            setup = parts.client.get('/api/screener/setup').json()
+            if setup['last_runs'].get('total_market') is not None:
+                break
+            asyncio.run(asyncio.sleep(0.01))
         body = parts.client.get(
             '/api/screener/run?condition=rsi:0:100&sort=symbol&descending=false'
         ).json()
